@@ -4,11 +4,10 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test processing of feefilter messages."""
 
+from test_framework.mininode import *
+from test_framework.test_framework import KnoxFSTestFramework
+from test_framework.util import *
 import time
-
-from test_framework.messages import msg_feefilter
-from test_framework.mininode import mininode_lock, P2PInterface
-from test_framework.test_framework import PivxTestFramework
 
 
 def hashToHex(hash):
@@ -23,7 +22,7 @@ def allInvsMatch(invsExpected, testnode):
         time.sleep(1)
     return False
 
-class TestP2PConn(P2PInterface):
+class TestNode(P2PInterface):
     def __init__(self):
         super().__init__()
         self.txinvs = []
@@ -37,7 +36,7 @@ class TestP2PConn(P2PInterface):
         with mininode_lock:
             self.txinvs = []
 
-class FeeFilterTest(PivxTestFramework):
+class FeeFilterTest(KnoxFSTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
 
@@ -48,8 +47,9 @@ class FeeFilterTest(PivxTestFramework):
         node1.generate(1)
         self.sync_blocks()
 
-        # Setup the p2p connections
-        self.nodes[0].add_p2p_connection(TestP2PConn())
+        # Setup the p2p connections and start up the network thread.
+        self.nodes[0].add_p2p_connection(TestNode())
+        network_thread_start()
         self.nodes[0].p2p.wait_for_verack()
 
         # Test that invs are received for all txs at feerate of 20 sat/byte

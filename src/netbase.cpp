@@ -1,25 +1,26 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2015 The Bitcoin developers
-// Copyright (c) 2017-2020 The PIVX developers
-// Distributed under the MIT software license, see the accompanying
-// file COPYING or https://www.opensource.org/licenses/mit-license.php.
+// Copyright (c) 2017-2020 The KFX developers
+// Distributed under the MIT/X11 software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifdef HAVE_CONFIG_H
+#include "config/knoxfs-config.h"
+#endif
 
 #include "netbase.h"
 
+#include "hash.h"
 #include "sync.h"
+#include "uint256.h"
 #include "random.h"
-#include "util/string.h"
-#include "util/system.h"
+#include "util.h"
 #include "utilstrencodings.h"
 
 #include <atomic>
-#include <cstdint>
-#include <limits>
 
 #ifndef WIN32
 #include <fcntl.h>
-#else
-#include <codecvt>
 #endif
 
 #if !defined(HAVE_MSG_NOSIGNAL) && !defined(MSG_NOSIGNAL)
@@ -43,24 +44,22 @@ enum Network ParseNetwork(std::string net)
     Downcase(net);
     if (net == "ipv4") return NET_IPV4;
     if (net == "ipv6") return NET_IPV6;
-    if (net == "tor" || net == "onion") return NET_ONION;
+    if (net == "tor" || net == "onion") return NET_TOR;
     return NET_UNROUTABLE;
 }
 
 std::string GetNetworkName(enum Network net)
 {
     switch (net) {
-        case NET_UNROUTABLE: return "unroutable";
-        case NET_IPV4: return "ipv4";
-        case NET_IPV6: return "ipv6";
-        case NET_ONION: return "onion";
-        case NET_I2P: return "i2p";
-        case NET_CJDNS: return "cjdns";
-        case NET_INTERNAL: return "internal";
-        case NET_MAX: assert(false);
-    } // no default case, so the compiler can warn about missing cases
-
-    assert(false);
+    case NET_IPV4:
+        return "ipv4";
+    case NET_IPV6:
+        return "ipv6";
+    case NET_TOR:
+        return "onion";
+    default:
+        return "";
+    }
 }
 
 void SplitHostPort(std::string in, int& portOut, std::string& hostOut)
@@ -83,17 +82,13 @@ void SplitHostPort(std::string in, int& portOut, std::string& hostOut)
         hostOut = in;
 }
 
-bool static LookupIntern(const std::string& name, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
+bool static LookupIntern(const char* pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
 {
     vIP.clear();
 
-    if (!ValidAsCString(name)) {
-        return false;
-    }
-
     {
         CNetAddr addr;
-        if (addr.SetSpecial(name)) {
+        if (addr.SetSpecial(std::string(pszName))) {
             vIP.push_back(addr);
             return true;
         }
@@ -111,26 +106,20 @@ bool static LookupIntern(const std::string& name, std::vector<CNetAddr>& vIP, un
     aiHint.ai_flags = fAllowLookup ? AI_ADDRCONFIG : AI_NUMERICHOST;
 #endif
     struct addrinfo* aiRes = NULL;
-    int nErr = getaddrinfo(name.c_str(), NULL, &aiHint, &aiRes);
+    int nErr = getaddrinfo(pszName, NULL, &aiHint, &aiRes);
     if (nErr)
         return false;
 
     struct addrinfo* aiTrav = aiRes;
     while (aiTrav != NULL && (nMaxSolutions == 0 || vIP.size() < nMaxSolutions)) {
-        CNetAddr resolved;
         if (aiTrav->ai_family == AF_INET) {
             assert(aiTrav->ai_addrlen >= sizeof(sockaddr_in));
-            resolved = CNetAddr(((struct sockaddr_in*)(aiTrav->ai_addr))->sin_addr);
+            vIP.emplace_back(((struct sockaddr_in*)(aiTrav->ai_addr))->sin_addr);
         }
 
         if (aiTrav->ai_family == AF_INET6) {
             assert(aiTrav->ai_addrlen >= sizeof(sockaddr_in6));
-            struct sockaddr_in6* s6 = (struct sockaddr_in6*) aiTrav->ai_addr;
-            resolved = CNetAddr(s6->sin6_addr, s6->sin6_scope_id);
-        }
-        /* Never allow resolving to an internal address. Consider any such result invalid */
-        if (!resolved.IsInternal()) {
-            vIP.push_back(resolved);
+            vIP.emplace_back(((struct sockaddr_in6*)(aiTrav->ai_addr))->sin6_addr);
         }
 
         aiTrav = aiTrav->ai_next;
@@ -141,45 +130,38 @@ bool static LookupIntern(const std::string& name, std::vector<CNetAddr>& vIP, un
     return (vIP.size() > 0);
 }
 
-bool LookupHost(const std::string& name, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
+bool LookupHost(const char* pszName, std::vector<CNetAddr>& vIP, unsigned int nMaxSolutions, bool fAllowLookup)
 {
-    if (!ValidAsCString(name)) {
-        return false;
-    }
-    std::string strHost = name;
+    std::string strHost(pszName);
     if (strHost.empty())
         return false;
     if (strHost.front() == '[' && strHost.back() == ']') {
         strHost = strHost.substr(1, strHost.size() - 2);
     }
 
-    return LookupIntern(strHost, vIP, nMaxSolutions, fAllowLookup);
+    return LookupIntern(strHost.c_str(), vIP, nMaxSolutions, fAllowLookup);
 }
 
-bool LookupHost(const std::string& name, CNetAddr& addr, bool fAllowLookup)
+bool LookupHost(const char* pszName, CNetAddr& addr, bool fAllowLookup)
 {
-    if (!ValidAsCString(name)) {
-        return false;
-    }
     std::vector<CNetAddr> vIP;
-    LookupHost(name, vIP, 1, fAllowLookup);
+    LookupHost(pszName, vIP, 1, fAllowLookup);
     if (vIP.empty())
         return false;
     addr = vIP.front();
     return true;
 }
 
-bool Lookup(const std::string& name, std::vector<CService>& vAddr, int portDefault, bool fAllowLookup, unsigned int nMaxSolutions)
+bool Lookup(const char* pszName, std::vector<CService>& vAddr, int portDefault, bool fAllowLookup, unsigned int nMaxSolutions)
 {
-    if (name.empty() || !ValidAsCString(name)) {
+    if (pszName[0] == 0)
         return false;
-    }
     int port = portDefault;
-    std::string hostname;
-    SplitHostPort(name, port, hostname);
+    std::string hostname = "";
+    SplitHostPort(std::string(pszName), port, hostname);
 
     std::vector<CNetAddr> vIP;
-    bool fRet = LookupIntern(hostname, vIP, nMaxSolutions, fAllowLookup);
+    bool fRet = LookupIntern(hostname.c_str(), vIP, nMaxSolutions, fAllowLookup);
     if (!fRet)
         return false;
     vAddr.resize(vIP.size());
@@ -188,28 +170,22 @@ bool Lookup(const std::string& name, std::vector<CService>& vAddr, int portDefau
     return true;
 }
 
-bool Lookup(const std::string& name, CService& addr, int portDefault, bool fAllowLookup)
+bool Lookup(const char* pszName, CService& addr, int portDefault, bool fAllowLookup)
 {
-    if (!ValidAsCString(name)) {
-        return false;
-    }
     std::vector<CService> vService;
-    bool fRet = Lookup(name, vService, portDefault, fAllowLookup, 1);
+    bool fRet = Lookup(pszName, vService, portDefault, fAllowLookup, 1);
     if (!fRet)
         return false;
     addr = vService[0];
     return true;
 }
 
-CService LookupNumeric(const std::string& name, int portDefault)
+CService LookupNumeric(const char* pszName, int portDefault)
 {
-    if (!ValidAsCString(name)) {
-        return {};
-    }
     CService addr;
     // "1.2:345" will fail to resolve the ip, but will still set the port.
     // If the ip fails to resolve, re-init the result.
-    if (!Lookup(name, addr, portDefault, false))
+    if (!Lookup(pszName, addr, portDefault, false))
         addr = CService();
     return addr;
 }
@@ -535,7 +511,11 @@ bool static ConnectSocketDirectly(const CService& addrConnect, SOCKET& hSocketRe
                 return false;
             }
             socklen_t nRetSize = sizeof(nRet);
-            if (getsockopt(hSocket, SOL_SOCKET, SO_ERROR, (sockopt_arg_type)&nRet, &nRetSize) == SOCKET_ERROR)
+#ifdef WIN32
+            if (getsockopt(hSocket, SOL_SOCKET, SO_ERROR, (char*)(&nRet), &nRetSize) == SOCKET_ERROR)
+#else
+            if (getsockopt(hSocket, SOL_SOCKET, SO_ERROR, &nRet, &nRetSize) == SOCKET_ERROR)
+#endif
             {
                 LogPrintf("getsockopt() for %s failed: %s\n", addrConnect.ToString(), NetworkErrorString(WSAGetLastError()));
                 CloseSocket(hSocket);
@@ -631,13 +611,11 @@ static bool ConnectThroughProxy(const proxyType &proxy, const std::string strDes
         ProxyCredentials random_auth;
         static std::atomic_int counter;
         random_auth.username = random_auth.password = strprintf("%i", counter++);
-        if (!Socks5(strDest, (uint16_t)port, &random_auth, hSocket)) {
+        if (!Socks5(strDest, (unsigned short)port, &random_auth, hSocket))
             return false;
-        }
     } else {
-        if (!Socks5(strDest, (uint16_t)port, 0, hSocket)) {
+        if (!Socks5(strDest, (unsigned short)port, 0, hSocket))
             return false;
-        }
     }
 
     hSocketRet = hSocket;
@@ -684,29 +662,27 @@ bool ConnectSocketByName(CService& addr, SOCKET& hSocketRet, const char* pszDest
     return ConnectThroughProxy(proxy, strDest, port, hSocketRet, nTimeout, outProxyConnectionFailed);
 }
 
-bool LookupSubNet(const std::string& strSubnet, CSubNet& ret)
+bool LookupSubNet(const char* pszName, CSubNet& ret)
 {
-    if (!ValidAsCString(strSubnet)) {
-        return false;
-    }
+    std::string strSubnet(pszName);
     size_t slash = strSubnet.find_last_of('/');
     std::vector<CNetAddr> vIP;
 
     std::string strAddress = strSubnet.substr(0, slash);
-    if (LookupHost(strAddress, vIP, 1, false))
+    if (LookupHost(strAddress.c_str(), vIP, 1, false))
     {
         CNetAddr network = vIP[0];
         if (slash != strSubnet.npos) {
             std::string strNetmask = strSubnet.substr(slash + 1);
-            uint8_t n;
-            if (ParseUInt8(strNetmask, &n)) {
-                // If valid number, assume CIDR variable-length subnet masking
+            int32_t n;
+            // IPv4 addresses start at offset 12, and first 12 bytes must match, so just offset n
+            if (ParseInt32(strNetmask, &n)) { // If valid number, assume /24 syntax
                 ret = CSubNet(network, n);
                 return ret.IsValid();
             } else // If not a valid number, try full netmask syntax
             {
                 // Never allow lookup for netmask
-                if (LookupHost(strNetmask, vIP, 1, false)) {
+                if (LookupHost(strNetmask.c_str(), vIP, 1, false)) {
                     ret = CSubNet(network, vIP[0]);
                     return ret.IsValid();
                 }
@@ -722,14 +698,12 @@ bool LookupSubNet(const std::string& strSubnet, CSubNet& ret)
 #ifdef WIN32
 std::string NetworkErrorString(int err)
 {
-    wchar_t buf[256];
+    char buf[256];
     buf[0] = 0;
-    if(FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
-            nullptr, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-            buf, ARRAYSIZE(buf), nullptr))
-    {
-        const auto& bufConvert = std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>,wchar_t>().to_bytes(buf);
-        return strprintf("%s (%d)", bufConvert, err);
+    if (FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
+            NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+            buf, sizeof(buf), NULL)) {
+        return strprintf("%s (%d)", buf, err);
     } else {
         return strprintf("Unknown error (%d)", err);
     }

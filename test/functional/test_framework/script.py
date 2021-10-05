@@ -7,15 +7,11 @@
 This file is modified from python-bitcoinlib.
 """
 
-import hashlib
-import struct
-import sys
-
-from .bignum import bn2vch
-from .messages import CTransaction, CTxOut, sha256, hash256
+from .mininode import CTransaction, CTxOut, sha256, hash256, uint256_from_str, ser_uint256, ser_string
 from binascii import hexlify
+import hashlib
 
-
+import sys
 bchr = chr
 bord = ord
 if sys.version > '3':
@@ -23,9 +19,11 @@ if sys.version > '3':
     bchr = lambda x: bytes([x])
     bord = lambda x: x
 
+import struct
+
+from .bignum import bn2vch
 
 MAX_SCRIPT_ELEMENT_SIZE = 520
-MAX_PUBKEYS_PER_MULTISIG = 20
 
 OPCODE_NAMES = {}
 
@@ -570,7 +568,7 @@ class CScript(bytes):
                 if fAccurate and (OP_1 <= lastOpcode <= OP_16):
                     n += opcode.decode_op_n()
                 else:
-                    n += MAX_PUBKEYS_PER_MULTISIG
+                    n += 20
             lastOpcode = opcode
         return n
 

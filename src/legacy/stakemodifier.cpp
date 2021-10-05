@@ -1,7 +1,7 @@
 // Copyright (c) 2011-2013 The PPCoin developers
 // Copyright (c) 2013-2014 The NovaCoin Developers
 // Copyright (c) 2014-2018 The BlackCoin Developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -34,10 +34,9 @@ static bool SelectBlockFromCandidates(
     uint64_t nStakeModifierPrev,
     const CBlockIndex** pindexSelected)
 {
-    bool fModifierV2 = false;
     bool fFirstRun = true;
     bool fSelected = false;
-    arith_uint256 hashBest = ARITH_UINT256_ZERO;
+    uint256 hashBest;
     *pindexSelected = (const CBlockIndex*)0;
     for (const auto& item : vSortedByTimestamp) {
         if (!mapBlockIndex.count(item.second))
@@ -47,25 +46,15 @@ static bool SelectBlockFromCandidates(
         if (fSelected && pindex->GetBlockTime() > nSelectionIntervalStop)
             break;
 
-        //if the lowest block height (vSortedByTimestamp[0]) is >= switch height, use new modifier calc
-        if (fFirstRun){
-            fModifierV2 = Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_POS_V2);
-            fFirstRun = false;
-        }
-
         if (mapSelectedBlocks.count(pindex->GetBlockHash()) > 0)
             continue;
 
         // compute the selection hash by hashing an input that is unique to that block
-        uint256 hashProof;
-        if(fModifierV2)
-            hashProof = pindex->GetBlockHash();
-        else
-            hashProof = pindex->IsProofOfStake() ? UINT256_ZERO : pindex->GetBlockHash();
+        uint256 hashProof = pindex->GetBlockHash();
 
         CDataStream ss(SER_GETHASH, 0);
         ss << hashProof << nStakeModifierPrev;
-        arith_uint256 hashSelection = UintToArith256(Hash(ss.begin(), ss.end()));
+        uint256 hashSelection = Hash(ss.begin(), ss.end());
 
         // the selection hash is divided by 2**32 so that proof-of-stake block
         // is always favored over proof-of-work block. this is to preserve
@@ -82,6 +71,8 @@ static bool SelectBlockFromCandidates(
             *pindexSelected = (const CBlockIndex*)pindex;
         }
     }
+    if (gArgs.GetBoolArg("-printstakemodifier", false))
+        LogPrintf("%s : selection hash=%s\n", __func__, hashBest.ToString().c_str());
     return fSelected;
 }
 
@@ -112,7 +103,7 @@ bool GetOldStakeModifier(CStakeInput* stake, uint64_t& nStakeModifier)
 {
     const CBlockIndex* pindexFrom = stake->GetIndexFrom();
     if (!pindexFrom) return error("%s : failed to get index from", __func__);
-    if (stake->IsZPIV()) {
+    if (stake->IsZKFX()) {
         int64_t nTimeBlockFrom = pindexFrom->GetBlockTime();
         const int nHeightStop = std::min(chainActive.Height(), Params().GetConsensus().height_last_ZC_AccumCheckpoint-1);
         while (pindexFrom && pindexFrom->nHeight + 1 <= nHeightStop) {
@@ -128,16 +119,6 @@ bool GetOldStakeModifier(CStakeInput* stake, uint64_t& nStakeModifier)
         return error("%s : failed to get kernel stake modifier", __func__);
 
     return true;
-}
-
-// sort blocks by timestamp, soliving tie with hash (taken as arith_uint)
-static bool sortedByTimestamp(const std::pair<uint64_t, uint256>& a,
-                              const std::pair<uint64_t, uint256>& b)
-{
-    if (a.first == b.first) {
-        return UintToArith256(a.second) < UintToArith256(b.second);
-    }
-    return a.first < b.first;
 }
 
 // Stake Modifier (hash modifier of proof-of-stake):
@@ -178,6 +159,9 @@ bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint64_t& nStakeMod
     nStakeModifier = p->GetStakeModifierV1();
     nModifierTime = p->GetBlockTime();
 
+    if (gArgs.GetBoolArg("-printstakemodifier", false))
+        LogPrintf("%s : prev modifier= %s time=%s\n", __func__, std::to_string(nStakeModifier).c_str(), DateTimeStrFormat("%Y-%m-%d %H:%M:%S", nModifierTime).c_str());
+
     if (nModifierTime / MODIFIER_INTERVAL >= pindexPrev->GetBlockTime() / MODIFIER_INTERVAL)
         return true;
 
@@ -192,8 +176,9 @@ bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint64_t& nStakeMod
         pindex = pindex->pprev;
     }
 
+    int nHeightFirstCandidate = pindex ? (pindex->nHeight + 1) : 0;
     std::reverse(vSortedByTimestamp.begin(), vSortedByTimestamp.end());
-    std::sort(vSortedByTimestamp.begin(), vSortedByTimestamp.end(), sortedByTimestamp);
+    std::sort(vSortedByTimestamp.begin(), vSortedByTimestamp.end());
 
     // Select 64 blocks from candidate blocks to generate stake modifier
     uint64_t nStakeModifierNew = 0;
@@ -212,6 +197,32 @@ bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint64_t& nStakeMod
 
         // add the selected block from candidates to selected list
         mapSelectedBlocks.emplace(pindex->GetBlockHash(), pindex);
+        if (gArgs.GetBoolArg("-printstakemodifier", false))
+            LogPrintf("%s : selected round %d stop=%s height=%d bit=%d\n", __func__,
+                nRound, DateTimeStrFormat("%Y-%m-%d %H:%M:%S", nSelectionIntervalStop).c_str(), pindex->nHeight, pindex->GetStakeEntropyBit());
+    }
+
+    // Print selection map for visualization of the selected blocks
+    if (gArgs.GetBoolArg("-printstakemodifier", false)) {
+        std::string strSelectionMap = "";
+        // '-' indicates proof-of-work blocks not selected
+        strSelectionMap.insert(0, pindexPrev->nHeight - nHeightFirstCandidate + 1, '-');
+        pindex = pindexPrev;
+        while (pindex && pindex->nHeight >= nHeightFirstCandidate) {
+            // '=' indicates proof-of-stake blocks not selected
+            if (pindex->IsProofOfStake())
+                strSelectionMap.replace(pindex->nHeight - nHeightFirstCandidate, 1, "=");
+            pindex = pindex->pprev;
+        }
+        for (const std::pair<const uint256, const CBlockIndex*> &item : mapSelectedBlocks) {
+            // 'S' indicates selected proof-of-stake blocks
+            // 'W' indicates selected proof-of-work blocks
+            strSelectionMap.replace(item.second->nHeight - nHeightFirstCandidate, 1, item.second->IsProofOfStake() ? "S" : "W");
+        }
+        LogPrintf("%s : selection height [%d, %d] map %s\n", __func__, nHeightFirstCandidate, pindexPrev->nHeight, strSelectionMap.c_str());
+    }
+    if (gArgs.GetBoolArg("-printstakemodifier", false)) {
+        LogPrintf("%s : new modifier=%s time=%s\n", __func__, std::to_string(nStakeModifierNew).c_str(), DateTimeStrFormat("%Y-%m-%d %H:%M:%S", pindexPrev->GetBlockTime()).c_str());
     }
 
     nStakeModifier = nStakeModifierNew;

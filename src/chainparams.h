@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2015 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -19,14 +19,19 @@
 #include <vector>
 
 struct CDNSSeedData {
-    std::string host;
+    std::string name, host;
     bool supportsServiceBitsFiltering;
-    CDNSSeedData(const std::string& strHost, bool supportsServiceBitsFilteringIn = false) : host(strHost), supportsServiceBitsFiltering(supportsServiceBitsFilteringIn) {}
+    CDNSSeedData(const std::string& strName, const std::string& strHost, bool supportsServiceBitsFilteringIn = false) : name(strName), host(strHost), supportsServiceBitsFiltering(supportsServiceBitsFilteringIn) {}
+};
+
+struct SeedSpec6 {
+    uint8_t addr[16];
+    uint16_t port;
 };
 
 /**
  * CChainParams defines various tweakable parameters of a given instance of the
- * PIVX system. There are three: the main network on which people trade goods
+ * KFX system. There are three: the main network on which people trade goods
  * and services, the public test network which gets reset from time to time and
  * a regression test mode which is intended for private networks only. It has
  * minimal difficulty to ensure that blocks can be found instantly.
@@ -62,10 +67,7 @@ public:
     int GetDefaultPort() const { return nDefaultPort; }
 
     const CBlock& GenesisBlock() const { return genesis; }
-    /** Policy: Filter transactions that do not match well-defined patterns */
-    bool RequireStandard() const { return fRequireStandard; }
-    /** If this chain is exclusively used for testing */
-    bool IsTestChain() const { return IsTestnet() || IsRegTestNet(); }
+
     /** Make miner wait to have peers to avoid wasting work */
     bool MiningRequiresPeers() const { return !IsRegTestNet(); }
     /** Headers first syncing is disabled */
@@ -73,12 +75,12 @@ public:
     /** Default value for -checkmempool and -checkblockindex argument */
     bool DefaultConsistencyChecks() const { return IsRegTestNet(); }
 
-    /** Return the network string */
+    /** Return the BIP70 network string (main, test or regtest) */
     std::string NetworkIDString() const { return strNetworkID; }
     const std::vector<CDNSSeedData>& DNSSeeds() const { return vSeeds; }
     const std::vector<unsigned char>& Base58Prefix(Base58Type type) const { return base58Prefixes[type]; }
     const std::string& Bech32HRP(Bech32Type type) const { return bech32HRPs[type]; }
-    const std::vector<uint8_t>& FixedSeeds() const { return vFixedSeeds; }
+    const std::vector<SeedSpec6>& FixedSeeds() const { return vFixedSeeds; }
     virtual const Checkpoints::CCheckpointData& Checkpoints() const = 0;
 
     bool IsRegTestNet() const { return NetworkIDString() == CBaseChainParams::REGTEST; }
@@ -96,8 +98,7 @@ protected:
     std::vector<CDNSSeedData> vSeeds;
     std::vector<unsigned char> base58Prefixes[MAX_BASE58_TYPES];
     std::string bech32HRPs[MAX_BECH32_TYPES];
-    std::vector<uint8_t> vFixedSeeds;
-    bool fRequireStandard;
+    std::vector<SeedSpec6> vFixedSeeds;
 };
 
 /**
@@ -114,7 +115,7 @@ std::unique_ptr<CChainParams> CreateChainParams(const std::string& chain);
 const CChainParams& Params();
 
 /**
- * Sets the params returned by Params() to those for the given chain name.
+ * Sets the params returned by Params() to those for the given BIP70 chain name.
  * @throws std::runtime_error when the chain is not supported.
  */
 void SelectParams(const std::string& chain);

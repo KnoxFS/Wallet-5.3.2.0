@@ -1,11 +1,11 @@
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "blocksignature.h"
 
 #include "script/standard.h"
-#include "zpivchain.h"
+#include "zknoxfschain.h"
 
 bool SignBlockWithKey(CBlock& block, const CKey& key)
 {
@@ -48,13 +48,13 @@ bool CheckBlockSignature(const CBlock& block)
     if (block.vchBlockSig.empty())
         return error("%s: vchBlockSig is empty!", __func__);
 
-    /** Each block is signed by the private key of the input that is staked. This can be either zPIV or normal UTXO
-     *  zPIV: Each zPIV has a keypair associated with it. The serial number is a hash of the public key.
+    /** Each block is signed by the private key of the input that is staked. This can be either zKFX or normal UTXO
+     *  zKFX: Each zKFX has a keypair associated with it. The serial number is a hash of the public key.
      *  UTXO: The public key that signs must match the public key associated with the first utxo of the coinstake tx.
      */
     CPubKey pubkey;
-    bool fzPIVStake = block.vtx[1]->vin[0].IsZerocoinSpend();
-    if (fzPIVStake) {
+    bool fzKFXStake = block.vtx[1]->vin[0].IsZerocoinSpend();
+    if (fzKFXStake) {
         libzerocoin::CoinSpend spend = TxInToZerocoinSpend(block.vtx[1]->vin[0]);
         pubkey = spend.getPubKey();
     } else {
@@ -76,17 +76,14 @@ bool CheckBlockSignature(const CBlock& block)
                 // p2pk scriptsig only contains the signature and p2pkh scriptpubkey only contain the hash.
                 return false;
             } else {
-                unsigned int start = 1 + (unsigned int) *txin.scriptSig.begin(); // skip sig
-                if (start >= txin.scriptSig.size() - 1) return false;
+                int start = 1 + (int) *txin.scriptSig.begin(); // skip sig
                 pubkey = CPubKey(txin.scriptSig.begin()+start+1, txin.scriptSig.end());
             }
         } else if (whichType == TX_COLDSTAKE) {
             // pick the public key from the P2CS input
             const CTxIn& txin = block.vtx[1]->vin[0];
-            unsigned int start = 1 + (unsigned int) *txin.scriptSig.begin(); // skip sig
-            if (start >= txin.scriptSig.size() - 1) return false;
+            int start = 1 + (int) *txin.scriptSig.begin(); // skip sig
             start += 1 + (int) *(txin.scriptSig.begin()+start); // skip flag
-            if (start >= txin.scriptSig.size() - 1) return false;
             pubkey = CPubKey(txin.scriptSig.begin()+start+1, txin.scriptSig.end());
         }
     }

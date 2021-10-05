@@ -1,12 +1,12 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2019 The PIVX developers
+// Copyright (c) 2015-2019 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 #include "masternodeconfig.h"
 
 #include "fs.h"
 #include "netbase.h"
-#include "util/system.h"
+#include "util.h"
 #include "guiinterface.h"
 #include <base58.h>
 
@@ -37,14 +37,14 @@ bool CMasternodeConfig::read(std::string& strErr)
     LOCK(cs_entries);
     int linenumber = 1;
     fs::path pathMasternodeConfigFile = GetMasternodeConfigFile();
-    fsbridge::ifstream streamConfig(pathMasternodeConfigFile);
+    fs::ifstream streamConfig(pathMasternodeConfigFile);
 
     if (!streamConfig.good()) {
         FILE* configFile = fsbridge::fopen(pathMasternodeConfigFile, "a");
         if (configFile != NULL) {
             std::string strHeader = "# Masternode config file\n"
                                     "# Format: alias IP:port masternodeprivkey collateral_output_txid collateral_output_index\n"
-                                    "# Example: mn1 127.0.0.2:51472 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0"
+                                    "# Example: mn1 127.0.0.2:29929 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0"
                                     "#\n";
             fwrite(strHeader.c_str(), std::strlen(strHeader.c_str()), 1, configFile);
             fclose(configFile);

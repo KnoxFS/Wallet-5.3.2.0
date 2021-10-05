@@ -1,6 +1,6 @@
 // Copyright (c) 2011-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -15,16 +15,16 @@
 #include "checkpoints.h"
 #include "clientversion.h"
 #include "interfaces/handler.h"
-#include "mapport.h"
 #include "masternodeman.h"
 #include "net.h"
 #include "netbase.h"
 #include "guiinterface.h"
-#include "util/system.h"
+#include "util.h"
 #include "warnings.h"
 
 #include <stdint.h>
 
+#include <QDateTime>
 #include <QDebug>
 #include <QTimer>
 
@@ -76,13 +76,11 @@ int ClientModel::getNumConnections(unsigned int flags) const
 
 QString ClientModel::getMasternodeCountString() const
 {
-    const auto& info = mnodeman.getMNsInfo();
-    int unknown = std::max(0, info.total - info.ipv4 - info.ipv6 - info.onion);
-    return tr("Total: %1 (IPv4: %2 / IPv6: %3 / Tor: %4 / Unknown: %5)").arg(QString::number(info.total))
-                                                                        .arg(QString::number(info.ipv4))
-                                                                        .arg(QString::number(info.ipv6))
-                                                                        .arg(QString::number(info.onion))
-                                                                        .arg(QString::number(unknown));
+    int ipv4 = 0, ipv6 = 0, onion = 0;
+    int total = mnodeman.CountNetworks(ipv4, ipv6, onion);
+    int nUnknown = total - ipv4 - ipv6 - onion;
+    if(nUnknown < 0) nUnknown = 0;
+    return tr("Total: %1 (IPv4: %2 / IPv6: %3 / Tor: %4 / Unknown: %5)").arg(QString::number(total)).arg(QString::number((int)ipv4)).arg(QString::number((int)ipv6)).arg(QString::number((int)onion)).arg(QString::number((int)nUnknown));
 }
 
 QString ClientModel::getMasternodesCount()
@@ -94,11 +92,6 @@ QString ClientModel::getMasternodesCount()
     // Force an update
     cachedMasternodeCountString = getMasternodeCountString();
     return cachedMasternodeCountString;
-}
-
-CAmount ClientModel::getMNCollateralRequiredAmount()
-{
-    return Params().GetConsensus().nMNCollateralAmt;
 }
 
 int ClientModel::getNumBlocks()
@@ -255,6 +248,11 @@ QString ClientModel::formatFullVersion() const
     return QString::fromStdString(FormatFullVersion());
 }
 
+QString ClientModel::formatBuildDate() const
+{
+    return QString::fromStdString(CLIENT_DATE);
+}
+
 bool ClientModel::isReleaseVersion() const
 {
     return CLIENT_VERSION_IS_RELEASE;
@@ -349,10 +347,6 @@ void ClientModel::unsubscribeFromCoreSignals()
     m_handler_notify_block_tip->disconnect();
 }
 
-void ClientModel::mapPort(bool use_upnp, bool use_natpmp) {
-    StartMapPort(use_upnp, use_natpmp);
-}
-
 bool ClientModel::getTorInfo(std::string& ip_port) const
 {
     proxyType onion;
@@ -361,7 +355,7 @@ bool ClientModel::getTorInfo(std::string& ip_port) const
             LOCK(cs_mapLocalHost);
             for (const std::pair<const CNetAddr, LocalServiceInfo>& item : mapLocalHost) {
                 if (item.first.IsTor()) {
-                    CService addrOnion(LookupNumeric(item.first.ToString(), item.second.nPort));
+                    CService addrOnion(LookupNumeric(item.first.ToString().c_str(), item.second.nPort));
                     ip_port = addrOnion.ToStringIPPort();
                     return true;
                 }

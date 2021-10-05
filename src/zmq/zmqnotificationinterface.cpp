@@ -7,7 +7,7 @@
 
 #include "version.h"
 #include "streams.h"
-#include "util/system.h"
+#include "util.h"
 
 void zmqError(const char *str)
 {
@@ -39,15 +39,15 @@ CZMQNotificationInterface* CZMQNotificationInterface::Create()
     factories["pubrawblock"] = CZMQAbstractNotifier::Create<CZMQPublishRawBlockNotifier>;
     factories["pubrawtx"] = CZMQAbstractNotifier::Create<CZMQPublishRawTransactionNotifier>;
 
-    for (const auto& entry : factories)
+    for (std::map<std::string, CZMQNotifierFactory>::const_iterator i=factories.begin(); i!=factories.end(); ++i)
     {
-        std::string arg("-zmq" + entry.first);
+        std::string arg("-zmq" + i->first);
         if (gArgs.IsArgSet(arg))
         {
-            CZMQNotifierFactory factory = entry.second;
+            CZMQNotifierFactory factory = i->second;
             std::string address = gArgs.GetArg(arg, "");
             CZMQAbstractNotifier *notifier = factory();
-            notifier->SetType(entry.first);
+            notifier->SetType(i->first);
             notifier->SetAddress(address);
             notifiers.push_back(notifier);
         }
@@ -164,7 +164,7 @@ void CZMQNotificationInterface::TransactionAddedToMempool(const CTransactionRef&
     }
 }
 
-void CZMQNotificationInterface::BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected)
+void CZMQNotificationInterface::BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindexConnected, const std::vector<CTransactionRef>& vtxConflicted)
 {
     for (const CTransactionRef& ptx : pblock->vtx) {
         // Do a normal notify for each transaction added in the block

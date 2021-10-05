@@ -7,7 +7,7 @@
 import os
 import shutil
 
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KnoxFSTestFramework
 from test_framework.util import (
     assert_equal,
     connect_nodes,
@@ -15,7 +15,7 @@ from test_framework.util import (
 )
 
 
-class WalletHDTest(PivxTestFramework):
+class WalletHDTest(KnoxFSTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 2
@@ -131,7 +131,7 @@ class WalletHDTest(PivxTestFramework):
         # otherwise node1 would auto-recover all funds in flag the keypool keys as used
         shutil.rmtree(os.path.join(self.nodes[1].datadir, "regtest", "blocks"))
         shutil.rmtree(os.path.join(self.nodes[1].datadir, "regtest", "chainstate"))
-        shutil.copyfile(os.path.join(self.nodes[1].datadir, "hd.bak"), os.path.join(self.nodes[1].datadir, "regtest", "wallets", "wallet.dat"))
+        shutil.copyfile(os.path.join(self.nodes[1].datadir, "hd.bak"), os.path.join(self.nodes[1].datadir, "regtest", "wallet.dat"))
         self.start_node(1)
 
         # Assert that derivation is deterministic
@@ -150,15 +150,16 @@ class WalletHDTest(PivxTestFramework):
         self.start_node(1, extra_args=self.extra_args[1] + ['-rescan'])
         assert_equal(self.nodes[1].getbalance(), NUM_HD_ADDS + NUM_SHIELD_ADDS + 1)
 
-        # Try a RPC based rescan
+        # Delete chain and resync (without recreating shield addresses)
         self.stop_node(1)
         shutil.rmtree(os.path.join(self.nodes[1].datadir, "regtest", "blocks"))
         shutil.rmtree(os.path.join(self.nodes[1].datadir, "regtest", "chainstate"))
-        shutil.copyfile(os.path.join(self.nodes[1].datadir, "hd.bak"), os.path.join(self.nodes[1].datadir, "regtest", "wallets", "wallet.dat"))
+        shutil.copyfile(os.path.join(self.nodes[1].datadir, "hd.bak"), os.path.join(self.nodes[1].datadir, "regtest", "wallet.dat"))
         self.start_and_connect_node1()
         # Wallet automatically scans blocks older than key on startup (but shielded addresses need to be regenerated)
         assert_equal(self.nodes[1].getbalance(), NUM_HD_ADDS + 1)
-        # Wallet automatically scans blocks older than key on startup
+
+        """ todo: Implement rescanblockchain
         out = self.nodes[1].rescanblockchain(0, 1)
         assert_equal(out['start_height'], 0)
         assert_equal(out['stop_height'], 1)
@@ -166,6 +167,7 @@ class WalletHDTest(PivxTestFramework):
         assert_equal(out['start_height'], 0)
         assert_equal(out['stop_height'], self.nodes[1].getblockcount())
         assert_equal(self.nodes[1].getbalance(), NUM_HD_ADDS + 1)
+        """
 
         # send a tx and make sure its using the internal chain for the changeoutput
         txid = self.nodes[1].sendtoaddress(self.nodes[0].getnewaddress(), 1)
@@ -213,14 +215,14 @@ class WalletHDTest(PivxTestFramework):
 
         # Delete wallet and recover from first seed
         self.stop_node(1)
-        os.remove(os.path.join(self.nodes[1].datadir, "regtest", "wallets", "wallet.dat"))
+        os.remove(os.path.join(self.nodes[1].datadir, "regtest", "wallet.dat"))
         self.start_node(1)
         # Regenerate old shield addresses
         self.log.info("Restore from seed ...")
         self.nodes[1].sethdseed(True, hdseed)
         z_add_3 = self.generate_shield_addr(masterkeyid, NUM_SHIELD_ADDS)
         assert_equal(z_add, z_add_3)
-        # Restart, zap, and check balance: 1 PIV * (NUM_HD_ADDS + NUM_SHIELD_ADDS) recovered from seed
+        # Restart, zap, and check balance: 1 KFX * (NUM_HD_ADDS + NUM_SHIELD_ADDS) recovered from seed
         self.stop_node(1)
         self.start_node(1, extra_args=self.extra_args[1] + ['-zapwallettxes=1'])
         assert_equal(self.nodes[1].getbalance(), NUM_HD_ADDS + NUM_SHIELD_ADDS)

@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -58,7 +58,7 @@ bool CBudgetProposal::ParseBroadcast(CDataStream& broadcast)
         broadcast >> nBlockStart;
         broadcast >> nBlockEnd;
         broadcast >> nAmount;
-        broadcast >> address;
+        broadcast >> *(CScriptBase*)(&address);
         broadcast >> nFeeTXHash;
     } catch (std::exception& e) {
         return error("Unable to deserialize proposal broadcast: %s", e.what());
@@ -79,7 +79,7 @@ void CBudgetProposal::SyncVotes(CNode* pfrom, bool fPartial, int& nInvCount) con
 
 bool CBudgetProposal::IsHeavilyDownvoted(bool fNewRules)
 {
-    if (GetNays() - GetYeas() > (fNewRules ? 3 : 1) * mnodeman.CountEnabled() / 10) {
+    if (GetNays() - GetYeas() > (fNewRules ? 3 : 1) * mnodeman.CountEnabled(ActiveProtocol()) / 10) {
         strInvalid = "Heavily Downvoted";
         return true;
     }
@@ -338,7 +338,7 @@ CDataStream CBudgetProposal::GetBroadcast() const
     broadcast << nBlockStart;
     broadcast << nBlockEnd;
     broadcast << nAmount;
-    broadcast << address;
+    broadcast << *(CScriptBase*)(&address);
     broadcast << nFeeTXHash;
     return broadcast;
 }

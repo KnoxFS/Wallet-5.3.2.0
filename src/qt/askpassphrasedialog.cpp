@@ -1,12 +1,8 @@
 // Copyright (c) 2011-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
-
-#if defined(HAVE_CONFIG_H)
-#include "config/pivx-config.h"
-#endif
 
 #include "askpassphrasedialog.h"
 #include "ui_askpassphrasedialog.h"
@@ -15,10 +11,10 @@
 #include "guiconstants.h"
 #include "guiutil.h"
 #include "walletmodel.h"
-#include "qt/pivx/qtutils.h"
-#include "qt/pivx/loadingdialog.h"
-#include "qt/pivx/defaultdialog.h"
-#include "qt/pivx/pivxgui.h"
+#include "qt/knoxfs/qtutils.h"
+#include "qt/knoxfs/loadingdialog.h"
+#include "qt/knoxfs/defaultdialog.h"
+#include "qt/knoxfs/knoxfsgui.h"
 #include <QDebug>
 
 #include <QKeyEvent>
@@ -194,7 +190,7 @@ void AskPassphraseDialog::accept()
         );
         if (ret) {
             newpassCache = newpass1;
-            PIVXGUI* window = static_cast<PIVXGUI*>(parentWidget());
+            KFXGUI* window = static_cast<KFXGUI*>(parentWidget());
             LoadingDialog *dialog = new LoadingDialog(window);
             dialog->execute(this, 1);
             openDialogWithOpaqueBackgroundFullScreen(dialog, window);
@@ -314,7 +310,7 @@ bool AskPassphraseDialog::eventFilter(QObject* object, QEvent* event)
 
 bool AskPassphraseDialog::openStandardDialog(QString title, QString body, QString okBtn, QString cancelBtn)
 {
-    PIVXGUI* gui = static_cast<PIVXGUI*>(parentWidget());
+    KFXGUI* gui = static_cast<KFXGUI*>(parentWidget());
     DefaultDialog *confirmDialog = new DefaultDialog(gui);
     confirmDialog->setText(title, body, okBtn, cancelBtn);
     confirmDialog->adjustSize();
@@ -347,13 +343,13 @@ void AskPassphraseDialog::updateWarningsLabel()
 void AskPassphraseDialog::warningMessage()
 {
     hide();
-    static_cast<PIVXGUI*>(parentWidget())->showHide(true);
+    static_cast<KFXGUI*>(parentWidget())->showHide(true);
     openStandardDialog(
             tr("Wallet encrypted"),
             "<qt>" +
-            tr("%1 will close now to finish the encryption process. "
+            tr("KFX will close now to finish the encryption process. "
                "Remember that encrypting your wallet cannot fully protect "
-               "your PIVs from being stolen by malware infecting your computer.").arg(PACKAGE_NAME) +
+               "your KFXs from being stolen by malware infecting your computer.") +
             "<br><br><b>" +
             tr("IMPORTANT: Any previous backups you have made of your wallet file "
                "should be replaced with the newly generated, encrypted wallet file. "

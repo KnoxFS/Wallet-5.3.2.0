@@ -1,6 +1,6 @@
 // Copyright (c) 2011-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,7 +9,6 @@
 
 #include "uint256.h"
 #include "chain.h"
-
 #include <QObject>
 #include <QDateTime>
 
@@ -44,7 +43,7 @@ enum NumConnections {
     CONNECTIONS_ALL = (CONNECTIONS_IN | CONNECTIONS_OUT),
 };
 
-/** Model for PIVX network client. */
+/** Model for KFX network client. */
 class ClientModel : public QObject
 {
     Q_OBJECT
@@ -82,6 +81,7 @@ public:
     QString getStatusBarWarnings() const;
 
     QString formatFullVersion() const;
+    QString formatBuildDate() const;
     bool isReleaseVersion() const;
     QString clientName() const;
     QString formatClientStartupTime() const;
@@ -94,18 +94,12 @@ public:
 
     bool getTorInfo(std::string& ip_port) const;
 
-    //! Set the automatic port mapping options
-    static void mapPort(bool use_upnp, bool use_natpmp);
-
     // Start/Stop the masternode polling timer
     void startMasternodesTimer();
     void stopMasternodesTimer();
     // Force a MN count update calling mnmanager directly locking its internal mutex.
     // Future todo: implement an event based update and remove the lock requirement.
     QString getMasternodesCount();
-
-    // Return the specific chain amount value for the MN collateral output.
-    CAmount getMNCollateralRequiredAmount();
 
 private:
     // Listeners

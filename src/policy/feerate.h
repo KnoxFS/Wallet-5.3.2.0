@@ -1,10 +1,10 @@
 // Copyright (c) 2009-2017 The Bitcoin Core developers
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_POLICY_FEERATE_H
-#define PIVX_POLICY_FEERATE_H
+#ifndef KFX_POLICY_FEERATE_H
+#define KFX_POLICY_FEERATE_H
 
 #include "amount.h"
 #include "serialize.h"
@@ -14,7 +14,7 @@
 extern const std::string CURRENCY_UNIT;
 
 /**
- * Fee rate in PIV per kilobyte: CAmount / kB
+ * Fee rate in KFX per kilobyte: CAmount / kB
  */
 class CFeeRate
 {
@@ -36,7 +36,13 @@ public:
     CFeeRate& operator+=(const CFeeRate& a) { nSatoshisPerK += a.nSatoshisPerK; return *this; }
     std::string ToString() const;
 
-    SERIALIZE_METHODS(CFeeRate, obj) { READWRITE(obj.nSatoshisPerK); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(nSatoshisPerK);
+    }
 };
 
-#endif //  PIVX_POLICY_FEERATE_H
+#endif //  KFX_POLICY_FEERATE_H

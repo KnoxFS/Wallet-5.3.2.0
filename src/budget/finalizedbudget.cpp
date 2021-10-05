@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -413,7 +413,7 @@ bool CFinalizedBudget::operator>(const CFinalizedBudget& other) const
     const int count = GetVoteCount();
     const int otherCount = other.GetVoteCount();
 
-    if (count == otherCount) return UintToArith256(GetFeeTXHash()) > UintToArith256(other.GetFeeTXHash());
+    if (count == otherCount) return GetFeeTXHash() > other.GetFeeTXHash();
 
     return count > otherCount;
 }

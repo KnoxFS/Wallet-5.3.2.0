@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2018 The Dash Core developers
-// Copyright (c) 2018-2020 The PIVX developers
+// Copyright (c) 2018-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,9 +7,12 @@
 #define MESSAGESIGNER_H
 
 #include "key.h"
+#include "primitives/transaction.h" // for CTxIn
+
+extern const std::string strMessageMagic;
 
 enum MessageVersion {
-        MESS_VER_STRMESS    = 0, // old format
+        MESS_VER_STRMESS    = 0,
         MESS_VER_HASH       = 1,
 };
 
@@ -20,7 +23,6 @@ class CMessageSigner
 public:
     /// Set the private/public key values, returns true if successful
     static bool GetKeysFromSecret(const std::string& strSecret, CKey& keyRet, CPubKey& pubkeyRet);
-    static bool GetKeysFromSecret(const std::string& strSecret, CKey& keyRet, CKeyID& keyIDRet);
     /// Get the hash based on the input message
     static uint256 GetMessageHash(const std::string& strMessage);
     /// Sign the message, returns true if successful

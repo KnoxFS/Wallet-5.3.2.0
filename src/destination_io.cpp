@@ -1,9 +1,9 @@
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
 #include "destination_io.h"
-#include "key_io.h"
+#include "base58.h"
 #include "sapling/key_io_sapling.h"
 
 namespace Standard {
@@ -65,27 +65,4 @@ namespace Standard {
     }
 
 } // End Standard namespace
-
-Destination& Destination::operator=(const Destination& from)
-{
-    this->dest = from.dest;
-    this->isP2CS = from.isP2CS;
-    return *this;
-}
-
-// Returns the key ID if Destination is a transparent "regular" destination
-const CKeyID* Destination::getKeyID()
-{
-    const CTxDestination* regDest = Standard::GetTransparentDestination(dest);
-    return (regDest) ? boost::get<CKeyID>(regDest) : nullptr;
-}
-
-std::string Destination::ToString() const
-{
-    if (!Standard::IsValidDestination(dest)) {
-        // Invalid address
-        return "";
-    }
-    return Standard::EncodeDestination(dest, isP2CS ? CChainParams::STAKING_ADDRESS : CChainParams::PUBKEY_ADDRESS);
-}
 

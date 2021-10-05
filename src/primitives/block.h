@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2013 The Bitcoin developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -23,7 +23,7 @@ class CBlockHeader
 {
 public:
     // header
-    static const int32_t CURRENT_VERSION=11;    // since v5.2.99
+    static const int32_t CURRENT_VERSION=10;    // since v5.1.99
     int32_t nVersion;
     uint256 hashPrevBlock;
     uint256 hashMerkleRoot;
@@ -38,16 +38,24 @@ public:
         SetNull();
     }
 
-    SERIALIZE_METHODS(CBlockHeader, obj) {
-        READWRITE(obj.nVersion, obj.hashPrevBlock, obj.hashMerkleRoot, obj.nTime, obj.nBits, obj.nNonce);
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(nVersion);
+        READWRITE(hashPrevBlock);
+        READWRITE(hashMerkleRoot);
+        READWRITE(nTime);
+        READWRITE(nBits);
+        READWRITE(nNonce);
 
         //zerocoin active, header changes to include accumulator checksum
-        if(obj.nVersion > 3 && obj.nVersion < 7)
-            READWRITE(obj.nAccumulatorCheckpoint);
+        if(nVersion > 3 && nVersion < 7)
+            READWRITE(nAccumulatorCheckpoint);
 
         // Sapling active
-        if (obj.nVersion >= 8)
-            READWRITE(obj.hashFinalSaplingRoot);
+        if (nVersion >= 8)
+            READWRITE(hashFinalSaplingRoot);
     }
 
     void SetNull()
@@ -99,12 +107,14 @@ public:
         *(static_cast<CBlockHeader*>(this)) = header;
     }
 
-    SERIALIZE_METHODS(CBlock, obj)
-    {
-        READWRITEAS(CBlockHeader, obj);
-        READWRITE(obj.vtx);
-        if(obj.vtx.size() > 1 && obj.vtx[1]->IsCoinStake())
-            READWRITE(obj.vchBlockSig);
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(*static_cast<CBlockHeader*>(this));
+        READWRITE(vtx);
+        if(vtx.size() > 1 && vtx[1]->IsCoinStake())
+            READWRITE(vchBlockSig);
     }
 
     void SetNull()
@@ -161,12 +171,14 @@ struct CBlockLocator
         vHave = vHaveIn;
     }
 
-    SERIALIZE_METHODS(CBlockLocator, obj)
-    {
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         int nVersion = s.GetVersion();
         if (!(s.GetType() & SER_GETHASH))
             READWRITE(nVersion);
-        READWRITE(obj.vHave);
+        READWRITE(vHave);
     }
 
     void SetNull()
@@ -174,7 +186,7 @@ struct CBlockLocator
         vHave.clear();
     }
 
-    bool IsNull() const
+    bool IsNull()
     {
         return vHave.empty();
     }

@@ -33,7 +33,7 @@ Given a block hash: returns <COUNT> amount of blockheaders in upward direction.
 
 Returns various state info regarding block chain processing.
 Only supports JSON as output format.
-* chain : (string) current network name (main, test, regtest)
+* chain : (string) current network name as defined in BIP70 (main, test, regtest)
 * blocks : (numeric) the current number of blocks processed in the server
 * headers : (numeric) the current number of headers we have validated
 * bestblockhash : (string) the hash of the currently best block
@@ -90,4 +90,4 @@ Only supports JSON as output format.
 
 Risks
 -------------
-Running a web browser on the same node with a REST enabled pivxd can be a risk. Accessing prepared XSS websites could read out tx/block data of your node by placing links like `<script src="http://127.0.0.1:51473/rest/tx/1234567890.json">` which might break the nodes privacy.
+Running a web browser on the same node with a REST enabled knoxfsd can be a risk. Accessing prepared XSS websites could read out tx/block data of your node by placing links like `<script src="http://127.0.0.1:29939/rest/tx/1234567890.json">` which might break the nodes privacy.

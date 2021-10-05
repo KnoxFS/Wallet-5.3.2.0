@@ -1,5 +1,5 @@
 // Copyright (c) 2016-2018 The Zcash developers
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
@@ -23,35 +23,33 @@ public:
     std::vector<std::vector<bool>> authentication_path;
     std::vector<bool> index;
 
-    template<typename Stream>
-    void Serialize(Stream &s) const
-    {
-        std::vector<std::vector<unsigned char>> pathBytes;
-        uint64_t indexInt;
-        assert(authentication_path.size() == index.size());
-        pathBytes.resize(authentication_path.size());
-        for (size_t i = 0; i < authentication_path.size(); i++) {
-            pathBytes[i].resize((authentication_path[i].size()+7)/8);
-            for (unsigned int p = 0; p < authentication_path[i].size(); p++) {
-                pathBytes[i][p / 8] |= authentication_path[i][p] << (7-(p % 8));
-            }
-        }
-        indexInt = convertVectorToInt(index);
-        ::Serialize(s, pathBytes);
-        ::Serialize(s, indexInt);
-    }
+    ADD_SERIALIZE_METHODS;
 
-    template<typename Stream>
-    void Unserialize(Stream &s)
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
         std::vector<std::vector<unsigned char>> pathBytes;
         uint64_t indexInt;
-        ::Unserialize(s, pathBytes);
-        ::Unserialize(s, indexInt);
-        MerklePath &us = *(const_cast<MerklePath*>(this));
-        for (size_t i = 0; i < pathBytes.size(); i++) {
-            us.authentication_path.push_back(convertBytesVectorToVector(pathBytes[i]));
-            us.index.push_back((indexInt >> ((pathBytes.size() - 1) - i)) & 1);
+        if (ser_action.ForRead()) {
+            READWRITE(pathBytes);
+            READWRITE(indexInt);
+            MerklePath &us = *(const_cast<MerklePath*>(this));
+            for (size_t i = 0; i < pathBytes.size(); i++) {
+                us.authentication_path.push_back(convertBytesVectorToVector(pathBytes[i]));
+                us.index.push_back((indexInt >> ((pathBytes.size() - 1) - i)) & 1);
+            }
+        } else {
+            assert(authentication_path.size() == index.size());
+            pathBytes.resize(authentication_path.size());
+            for (size_t i = 0; i < authentication_path.size(); i++) {
+                pathBytes[i].resize((authentication_path[i].size()+7)/8);
+                for (unsigned int p = 0; p < authentication_path[i].size(); p++) {
+                    pathBytes[i][p / 8] |= authentication_path[i][p] << (7-(p % 8));
+                }
+            }
+            indexInt = convertVectorToInt(index);
+            READWRITE(pathBytes);
+            READWRITE(indexInt);
         }
     }
 
@@ -112,10 +110,16 @@ public:
         return IncrementalWitness<Depth, Hash>(*this);
     }
 
-    SERIALIZE_METHODS(IncrementalMerkleTree, obj)
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
-        READWRITE(obj.left, obj.right, obj.parents);
-        obj.wfcheck();
+        READWRITE(left);
+        READWRITE(right);
+        READWRITE(parents);
+
+        wfcheck();
     }
 
     static Hash empty_root() {
@@ -177,10 +181,16 @@ public:
 
     void append(Hash obj);
 
-    SERIALIZE_METHODS(IncrementalWitness, obj)
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
-        READWRITE(obj.tree, obj.filled, obj.cursor);
-        SER_READ(obj, obj.cursor_depth = obj.tree.next_depth(obj.filled.size()));
+        READWRITE(tree);
+        READWRITE(filled);
+        READWRITE(cursor);
+
+        cursor_depth = tree.next_depth(filled.size());
     }
 
     template <size_t D, typename H>

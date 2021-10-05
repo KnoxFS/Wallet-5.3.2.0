@@ -1,9 +1,9 @@
 // Copyright (c) 2014 The Bitcoin Core developers
-// Copyright (c) 2019 The PIVX developers
+// Copyright (c) 2019 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "test/test_pivx.h"
+#include "test/test_knoxfs.h"
 
 #include "coins.h"
 #include "script/standard.h"
@@ -200,8 +200,8 @@ public:
                      memusage::DynamicUsage(cacheSaplingAnchors) +
                      memusage::DynamicUsage(cacheSaplingNullifiers);
         size_t count = 0;
-        for (const auto& entry : cacheCoins) {
-            ret += memusage::DynamicUsage(entry.second.coin);
+        for (CCoinsMap::iterator it = cacheCoins.begin(); it != cacheCoins.end(); it++) {
+            ret += memusage::DynamicUsage(it->second.coin);
             ++count;
         }
         BOOST_CHECK_EQUAL(GetCacheSize(), count);
@@ -690,15 +690,15 @@ BOOST_AUTO_TEST_CASE(coins_cache_simulation_test)
 
         // Once every 1000 iterations and at the end, verify the full cache.
         if (InsecureRandRange(1000) == 1 || i == NUM_SIMULATION_ITERATIONS - 1) {
-            for (const auto& entry : result) {
-                bool have = stack.back()->HaveCoin(entry.first);
-                const Coin& coin = stack.back()->AccessCoin(entry.first);
+            for (auto it = result.begin(); it != result.end(); it++) {
+                bool have = stack.back()->HaveCoin(it->first);
+                const Coin& coin = stack.back()->AccessCoin(it->first);
                 BOOST_CHECK(have == !coin.IsSpent());
-                BOOST_CHECK(coin == entry.second);
+                BOOST_CHECK(coin == it->second);
                 if (coin.IsSpent()) {
                     missed_an_entry = true;
                 } else {
-                    BOOST_CHECK(stack.back()->HaveCoinInCache(entry.first));
+                    BOOST_CHECK(stack.back()->HaveCoinInCache(it->first));
                     found_an_entry = true;
                 }
             }
@@ -804,7 +804,7 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
 
             // 2/20 times create a new coinbase
             if (randiter % 20 < 2 || coinbase_coins.size() < 10) {
-                // PIVX: don't test for duplicate coinbases as those are not possible due to
+                // KFX: don't test for duplicate coinbases as those are not possible due to
                 // BIP34 enforced since the beginning.
                 assert(CTransaction(tx).IsCoinBase());
                 coinbase_coins.insert(COutPoint(tx.GetHash(), 0));
@@ -818,7 +818,7 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
                     auto utxod = FindRandomFrom(coinbase_coins);
                     tx = std::get<0>(utxod->second);
                     prevout = tx.vin[0].prevout;
-                    // PIVX: no duplicates
+                    // KFX: no duplicates
                     BOOST_CHECK(!utxoset.count(prevout));
                     disconnected_coins.erase(utxod->first);
                     continue;
@@ -895,11 +895,11 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
 
         // Once every 1000 iterations and at the end, verify the full cache.
         if (InsecureRandRange(1000) == 1 || i == NUM_SIMULATION_ITERATIONS - 1) {
-            for (const auto& entry : result) {
-                bool have = stack.back()->HaveCoin(entry.first);
-                const Coin& coin = stack.back()->AccessCoin(entry.first);
+            for (auto it = result.begin(); it != result.end(); it++) {
+                bool have = stack.back()->HaveCoin(it->first);
+                const Coin& coin = stack.back()->AccessCoin(it->first);
                 BOOST_CHECK(have == !coin.IsSpent());
-                BOOST_CHECK(coin == entry.second);
+                BOOST_CHECK(coin == it->second);
             }
         }
 
@@ -953,7 +953,7 @@ BOOST_AUTO_TEST_CASE(ccoins_serialization)
     BOOST_CHECK_EQUAL(cc2.out.nValue, 110397);
     BOOST_CHECK_EQUAL(HexStr(cc2.out.scriptPubKey), HexStr(GetScriptForDestination(CKeyID(uint160(ParseHex("8c988f1a4a4de2161e0f50aac7f17e7f9555caa4"))))));
 
-    // PIVX: Example with fCoinStake
+    // KFX: Example with fCoinStake
     CDataStream ss2b(ParseHex("97b401808b63008c988f1a4a4de2161e0f50aac7f17e7f9555caa4"), SER_DISK, CLIENT_VERSION);
     Coin cc2b;
     ss2b >> cc2b;
@@ -985,7 +985,7 @@ BOOST_AUTO_TEST_CASE(ccoins_serialization)
     CDataStream tmp(SER_DISK, CLIENT_VERSION);
     uint64_t x = 3000000000ULL;
     tmp << VARINT(x);
-    BOOST_CHECK_EQUAL(HexStr(tmp), "8a95c0bb00");
+    BOOST_CHECK_EQUAL(HexStr(tmp.begin(), tmp.end()), "8a95c0bb00");
     CDataStream ss5(ParseHex("00008a95c0bb00"), SER_DISK, CLIENT_VERSION);
     try {
         Coin cc5;
@@ -1219,7 +1219,7 @@ BOOST_AUTO_TEST_CASE(ccoins_add)
      * entry in the cache after the modification. Verify behavior with the
      * with the ModifyNewCoin coinbase argument set to false, and to true.
      *
-     * PIVX: Remove Coinbase argument (ref: https://github.com/PIVX-Project/PIVX/pull/1775)
+     * KFX: Remove Coinbase argument (ref: https://github.com/KFX-Project/KFX/pull/1775)
      *
      *           Cache   Write   Result  Cache        Result
      *           Value   Value   Value   Flags        Flags

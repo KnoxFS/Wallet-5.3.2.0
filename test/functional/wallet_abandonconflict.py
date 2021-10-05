@@ -3,7 +3,8 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-from test_framework.test_framework import PivxTestFramework
+
+from test_framework.test_framework import KnoxFSTestFramework
 from test_framework.util import (
     assert_equal,
     assert_raises_rpc_error,
@@ -12,7 +13,7 @@ from test_framework.util import (
     disconnect_nodes,
 )
 
-class AbandonConflictTest(PivxTestFramework):
+class AbandonConflictTest(KnoxFSTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
         self.setup_clean_chain = True
@@ -87,12 +88,12 @@ class AbandonConflictTest(PivxTestFramework):
 
         # Restart the node with a higher min relay fee so the parent tx is no longer in mempool
         # TODO: redo with eviction
-        self.restart_node(0, extra_args=["-minrelaytxfee=0.0001"])
-        assert self.nodes[0].getmempoolinfo()['loaded']
+        # Note had to make sure tx did not have AllowFree priority
+        self.stop_node(0)
+        self.start_node(0, extra_args=["-minrelaytxfee=0.0001"])
 
-        # Verify txs no longer in either node's mempool
+        # Verify txs no longer in mempool
         assert_equal(len(self.nodes[0].getrawmempool()), 0)
-        assert_equal(len(self.nodes[1].getrawmempool()), 0)
 
         # Not in mempool txs from self should only reduce balance
         # inputs are still spent, but change not received

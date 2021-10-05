@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2016-2020 The PIVX developers
+// Copyright (c) 2016-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -25,9 +25,6 @@
 typedef std::vector<unsigned char> valtype;
 
 static const unsigned int MAX_SCRIPT_ELEMENT_SIZE = 520; // bytes
-
-// Maximum number of public keys per multisig
-static const int MAX_PUBKEYS_PER_MULTISIG = 20;
 
 // Maximum script length in bytes
 static const int MAX_SCRIPT_SIZE = 10000;
@@ -184,8 +181,7 @@ enum opcodetype
     OP_ZEROCOINPUBLICSPEND = 0xc3,
 
     // cold staking
-    OP_CHECKCOLDSTAKEVERIFY_LOF = 0xd1,     // last output free for masternode/budget payments
-    OP_CHECKCOLDSTAKEVERIFY = 0xd2,
+    OP_CHECKCOLDSTAKEVERIFY = 0xd1,
 
     OP_INVALIDOPCODE = 0xff,
 };
@@ -396,11 +392,15 @@ public:
     CScript(std::vector<unsigned char>::const_iterator pbegin, std::vector<unsigned char>::const_iterator pend) : CScriptBase(pbegin, pend) { }
     CScript(const unsigned char* pbegin, const unsigned char* pend) : CScriptBase(pbegin, pend) { }
 
-    SERIALIZE_METHODS(CScript, obj) { READWRITEAS(CScriptBase, obj); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(static_cast<CScriptBase&>(*this));
+    }
 
     CScript& operator+=(const CScript& b)
     {
-        reserve(size() + b.size());
         insert(end(), b.begin(), b.end());
         return *this;
     }
@@ -629,7 +629,6 @@ public:
     bool IsPayToPublicKeyHash() const;
     bool IsPayToScriptHash() const;
     bool IsPayToColdStaking() const;
-    bool IsPayToColdStakingLOF() const;
     bool StartsWithOpcode(const opcodetype opcode) const;
     bool IsZerocoinMint() const;
     bool IsZerocoinSpend() const;
@@ -649,6 +648,7 @@ public:
         return (size() > 0 && *begin() == OP_RETURN) || (size() > MAX_SCRIPT_SIZE);
     }
 
+    std::string ToString() const;
     void clear()
     {
         // The default prevector::clear() does not release memory
@@ -659,5 +659,8 @@ public:
     size_t DynamicMemoryUsage() const;
 };
 
+// contextual flag to guard the new rules for P2CS.
+// can be removed once v5.2 enforcement is activated.
+extern std::atomic<bool> g_newP2CSRules;
 
 #endif // BITCOIN_SCRIPT_SCRIPT_H

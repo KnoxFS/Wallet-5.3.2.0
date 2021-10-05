@@ -2,15 +2,15 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_ZIP32_H
-#define PIVX_ZIP32_H
+#ifndef KFX_ZIP32_H
+#define KFX_ZIP32_H
 
-#include "uint256.h"
-#include "key.h"
-#include "sapling/address.h"
 #include "serialize.h"
-#include "support/allocators/zeroafterfree.h"
+#include "allocators.h"
+#include "blob_uint256.h"
+#include "key.h"
 #include "uint256.h"
+#include "sapling/address.h"
 
 #include <boost/optional.hpp>
 
@@ -57,7 +57,17 @@ struct SaplingExtendedFullViewingKey {
     libzcash::SaplingFullViewingKey fvk;
     uint256 dk;
 
-    SERIALIZE_METHODS(SaplingExtendedFullViewingKey, obj) { READWRITE(obj.depth, obj.parentFVKTag, obj.childIndex, obj.chaincode, obj.fvk, obj.dk); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(depth);
+        READWRITE(parentFVKTag);
+        READWRITE(childIndex);
+        READWRITE(chaincode);
+        READWRITE(fvk);
+        READWRITE(dk);
+    }
 
     boost::optional<SaplingExtendedFullViewingKey> Derive(uint32_t i) const;
 
@@ -93,7 +103,17 @@ struct SaplingExtendedSpendingKey {
     libzcash::SaplingExpandedSpendingKey expsk;
     uint256 dk;
 
-    SERIALIZE_METHODS(SaplingExtendedSpendingKey, obj) { READWRITE(obj.depth, obj.parentFVKTag, obj.childIndex, obj.chaincode, obj.expsk, obj.dk); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(depth);
+        READWRITE(parentFVKTag);
+        READWRITE(childIndex);
+        READWRITE(chaincode);
+        READWRITE(expsk);
+        READWRITE(dk);
+    }
 
     static SaplingExtendedSpendingKey Master(const HDSeed& seed);
 
@@ -125,4 +145,4 @@ bool IsValidSpendingKey(const libzcash::SpendingKey& zkey);
 /** Check whether a ViewingKey is not an InvalidEncoding. */
 bool IsValidViewingKey(const libzcash::ViewingKey& vk);
 
-#endif // PIVX_ZIP32_H
+#endif // KFX_ZIP32_H

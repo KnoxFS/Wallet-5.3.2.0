@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
@@ -77,7 +77,7 @@ public:
     void AddedMasternodeList(const uint256& hash);
     void AddedMasternodeWinner(const uint256& hash);
     void AddedBudgetItem(const uint256& hash);
-    void SwitchToNextAsset();
+    void GetNextAsset();
     std::string GetSyncStatus();
     void ProcessMessage(CNode* pfrom, std::string& strCommand, CDataStream& vRecv);
     bool IsBudgetFinEmpty();
@@ -90,11 +90,12 @@ public:
      * If it returns false, the Process() step is complete.
      * Otherwise Process() calls it again for a different node.
      */
-    bool SyncWithNode(CNode* pnode, bool fLegacyMnObsolete);
+    bool SyncWithNode(CNode* pnode, bool isRegTestNet);
+
     bool IsSynced();
-    bool NotCompleted();
     bool IsSporkListSynced();
     bool IsMasternodeListSynced();
+    bool NotCompleted();
     bool IsBlockchainSynced();
     void ClearFulfilledRequest();
 
@@ -108,7 +109,6 @@ private:
     // Tier two sync node state
     // map of nodeID --> TierTwoPeerData
     std::map<NodeId, TierTwoPeerData> peersSyncState;
-    static int GetNextAsset(int currentAsset);
 
     void SyncRegtest(CNode* pnode);
 

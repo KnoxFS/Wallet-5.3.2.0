@@ -1,9 +1,9 @@
-// Copyright (c) 2020 The PIVX Core developers
+// Copyright (c) 2020 The KFX Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_SAPLINGSCRIPTPUBKEYMAN_H
-#define PIVX_SAPLINGSCRIPTPUBKEYMAN_H
+#ifndef KFX_SAPLINGSCRIPTPUBKEYMAN_H
+#define KFX_SAPLINGSCRIPTPUBKEYMAN_H
 
 #include "consensus/consensus.h"
 #include "sapling/note.h"
@@ -93,19 +93,22 @@ public:
      */
     Optional<uint256> nullifier;
 
-    SERIALIZE_METHODS(SaplingNoteData, obj)
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
         int nVersion = s.GetVersion();
         if (!(s.GetType() & SER_GETHASH)) {
             READWRITE(nVersion);
         }
-        READWRITE(obj.ivk);
-        READWRITE(obj.nullifier);
-        READWRITE(obj.witnesses);
-        READWRITE(obj.witnessHeight);
-        READWRITE(obj.amount);
-        READWRITE(obj.address);
-        READWRITE(obj.memo);
+        READWRITE(ivk);
+        READWRITE(nullifier);
+        READWRITE(witnesses);
+        READWRITE(witnessHeight);
+        READWRITE(amount);
+        READWRITE(address);
+        READWRITE(memo);
     }
 
     friend bool operator==(const SaplingNoteData& a, const SaplingNoteData& b) {
@@ -294,8 +297,6 @@ public:
                           bool requireSpendingKey=true,
                           bool ignoreLocked=true) const;
 
-    /* Return list of available notes grouped by sapling address. */
-    std::map<libzcash::SaplingPaymentAddress, std::vector<SaplingNoteEntry>> ListNotes() const;
 
     //! Return the address from where the shielded spend is taking the funds from (if possible)
     Optional<libzcash::SaplingPaymentAddress> GetAddressFromInputIfPossible(const CWalletTx* wtx, int index) const;
@@ -422,4 +423,4 @@ private:
     TxNullifiers mapTxSaplingNullifiers;
 };
 
-#endif //PIVX_SAPLINGSCRIPTPUBKEYMAN_H
+#endif //KFX_SAPLINGSCRIPTPUBKEYMAN_H

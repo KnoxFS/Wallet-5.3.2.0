@@ -9,13 +9,14 @@
  * @copyright  Copyright 2013 Ian Miers, Christina Garman and Matthew Green
  * @license    This project is released under the MIT license.
  **/
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 
 #ifndef COINSPEND_H_
 #define COINSPEND_H_
 
 #include <streams.h>
 #include <utilstrencodings.h>
+#include "Accumulator.h"
 #include "Coin.h"
 #include "Commitment.h"
 #include "Params.h"
@@ -27,16 +28,19 @@
 
 namespace libzerocoin
 {
-// Lagacy zPIV - Only for serialization
+// Lagacy zKFX - Only for serialization
 // Proof that a value inside a commitment C is accumulated in accumulator A
 class AccumulatorProofOfKnowledge {
 public:
     AccumulatorProofOfKnowledge() {};
-    SERIALIZE_METHODS(AccumulatorProofOfKnowledge, obj) {
-        READWRITE(obj.C_e, obj.C_u, obj.C_r, obj.st_1, obj.st_2, obj.st_3);
-        READWRITE(obj.t_1, obj.t_2, obj.t_3, obj.t_4, obj.s_alpha, obj.s_beta);
-        READWRITE(obj.s_zeta, obj.s_sigma, obj.s_eta, obj.s_epsilon);
-        READWRITE(obj.s_delta, obj.s_xi, obj.s_phi, obj.s_gamma, obj.s_psi);
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(C_e); READWRITE(C_u); READWRITE(C_r); READWRITE(st_1); READWRITE(st_2); READWRITE(st_3);
+        READWRITE(t_1); READWRITE(t_2); READWRITE(t_3); READWRITE(t_4); READWRITE(s_alpha); READWRITE(s_beta);
+        READWRITE(s_zeta); READWRITE(s_sigma); READWRITE(s_eta); READWRITE(s_epsilon);
+        READWRITE(s_delta); READWRITE(s_xi); READWRITE(s_phi); READWRITE(s_gamma); READWRITE(s_psi);
     }
 private:
     CBigNum C_e, C_u, C_r;
@@ -46,31 +50,43 @@ private:
     CBigNum s_xi, s_phi, s_gamma, s_psi;
 };
 
-// Lagacy zPIV - Only for serialization
+// Lagacy zKFX - Only for serialization
 // Signature of knowledge attesting that the signer knows the values to
 // open a commitment to a coin with given serial number
 class SerialNumberSignatureOfKnowledge {
 public:
     SerialNumberSignatureOfKnowledge(){};
-    SERIALIZE_METHODS(SerialNumberSignatureOfKnowledge, obj) { READWRITE(obj.s_notprime, obj.sprime, obj.hash); }
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(s_notprime);
+        READWRITE(sprime);
+        READWRITE(hash);
+    }
 private:
     uint256 hash;
     std::vector<CBigNum> s_notprime;
     std::vector<CBigNum> sprime;
 };
 
-// Lagacy zPIV - Only for serialization
+// Lagacy zKFX - Only for serialization
 // Proof that two commitments open to the same value (BROKEN)
 class CommitmentProofOfKnowledge {
 public:
     CommitmentProofOfKnowledge() {};
-    SERIALIZE_METHODS(CommitmentProofOfKnowledge, obj) { READWRITE(obj.S1,obj.S2, obj.S3, obj.challenge); }
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(S1); READWRITE(S2); READWRITE(S3); READWRITE(challenge);
+    }
 private:
     CBigNum S1, S2, S3, challenge;
 };
 
 
-// Lagacy zPIV - Only for serialization
+// Lagacy zKFX - Only for serialization
 /** The complete proof needed to spend a zerocoin.
  * Composes together a proof that a coin is accumulated
  * and that it has a given serial number.
@@ -107,15 +123,27 @@ public:
     CBigNum CalculateValidSerial(ZerocoinParams* params);
     std::string ToString() const;
 
-    SERIALIZE_METHODS(CoinSpend, obj)
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
-        READWRITE(obj.denomination, obj.ptxHash, obj.accChecksum, obj.accCommitmentToCoinValue);
-        READWRITE(obj.serialCommitmentToCoinValue, obj.coinSerialNumber, obj.accumulatorPoK);
-        READWRITE(obj.serialNumberSoK, obj.commitmentPoK);
+        READWRITE(denomination);
+        READWRITE(ptxHash);
+        READWRITE(accChecksum);
+        READWRITE(accCommitmentToCoinValue);
+        READWRITE(serialCommitmentToCoinValue);
+        READWRITE(coinSerialNumber);
+        READWRITE(accumulatorPoK);
+        READWRITE(serialNumberSoK);
+        READWRITE(commitmentPoK);
+
         try {
-            READWRITE(obj.version, obj.pubkey, obj.vchSig, obj.spendType);
+            READWRITE(version);
+            READWRITE(pubkey);
+            READWRITE(vchSig);
+            READWRITE(spendType);
         } catch (...) {
-            SER_READ(obj, obj.version = 1);
+            version = 1;
         }
     }
 

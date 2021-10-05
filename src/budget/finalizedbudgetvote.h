@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,7 +7,6 @@
 #define FINALIZED_BUDGET_VOTE_H
 
 #include "messagesigner.h"
-#include "primitives/transaction.h"
 
 #include <univalue.h>
 
@@ -48,7 +47,21 @@ public:
     void SetTime(const int64_t& _nTime) { nTime = _nTime; }
     void SetValid(bool _fValid) { fValid = _fValid; }
 
-    SERIALIZE_METHODS(CFinalizedBudgetVote, obj) { READWRITE(obj.vin, obj.nBudgetHash, obj.nTime, obj.vchSig, obj.nMessVersion); }
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(vin);
+        READWRITE(nBudgetHash);
+        READWRITE(nTime);
+        READWRITE(vchSig);
+        try
+        {
+            READWRITE(nMessVersion);
+        } catch (...) {
+            nMessVersion = MessageVersion::MESS_VER_STRMESS;
+        }
+    }
 };
 
 #endif // FINALIZED_BUDGET_VOTE_H

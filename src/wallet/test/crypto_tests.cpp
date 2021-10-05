@@ -4,7 +4,7 @@
 
 #include "random.h"
 #include "utilstrencodings.h"
-#include "test/test_pivx.h"
+#include "test/test_knoxfs.h"
 #include "crypter.h"
 
 #include <vector>
@@ -25,10 +25,10 @@ static void TestPassphraseSingle(const std::vector<unsigned char>& vchSalt, cons
 
     if(!correctKey.empty())
         BOOST_CHECK_MESSAGE(memcmp(crypt.vchKey.data(), correctKey.data(), crypt.vchKey.size()) == 0,
-                HexStr(crypt.vchKey) + std::string(" != ") + HexStr(correctKey));
+                HexStr(crypt.vchKey.begin(), crypt.vchKey.end()) + std::string(" != ") + HexStr(correctKey.begin(), correctKey.end()));
     if(!correctIV.empty())
         BOOST_CHECK_MESSAGE(memcmp(crypt.vchIV.data(), correctIV.data(), crypt.vchIV.size()) == 0,
-                HexStr(crypt.vchIV) + std::string(" != ") + HexStr(correctIV));
+                HexStr(crypt.vchIV.begin(), crypt.vchIV.end()) + std::string(" != ") + HexStr(correctIV.begin(), correctIV.end()));
 
 }
 
@@ -84,7 +84,7 @@ BOOST_AUTO_TEST_CASE(passphrase) {
 
     std::string hash(GetRandHash().ToString());
     std::vector<unsigned char> vchSalt(8);
-    GetRandBytes(vchSalt.data(), vchSalt.size());
+    GetRandBytes(&vchSalt[0], vchSalt.size());
     uint32_t rounds = GetRandInt(30000);
     if (rounds > 30000)
         rounds = 30000;

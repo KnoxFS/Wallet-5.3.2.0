@@ -1,6 +1,6 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin developers
-// Copyright (c) 2017-2019 The PIVX developers
+// Copyright (c) 2017-2019 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -28,7 +28,7 @@ enum HTTPStatusCode {
     HTTP_SERVICE_UNAVAILABLE   = 503,
 };
 
-//! PIVX RPC error codes
+//! KFX RPC error codes
 enum RPCErrorCode {
     //! Standard JSON-RPC 2.0 errors
     RPC_INVALID_REQUEST     = -32600,
@@ -58,7 +58,7 @@ enum RPCErrorCode {
     RPC_TRANSACTION_ALREADY_IN_CHAIN    = RPC_VERIFY_ALREADY_IN_CHAIN,
 
     //! P2P client errors
-    RPC_CLIENT_NOT_CONNECTED            = -9, //! PIVX is not connected
+    RPC_CLIENT_NOT_CONNECTED            = -9, //! KFX is not connected
     RPC_CLIENT_IN_INITIAL_DOWNLOAD      = -10, //! Still downloading initial blocks
     RPC_CLIENT_NODE_ALREADY_ADDED       = -23, //! Node is already added
     RPC_CLIENT_NODE_NOT_ADDED           = -24, //! Node has not been added before
@@ -76,8 +76,6 @@ enum RPCErrorCode {
     RPC_WALLET_WRONG_ENC_STATE          = -15, //! Command given in wrong wallet encryption state (encrypting an encrypted wallet etc.)
     RPC_WALLET_ENCRYPTION_FAILED        = -16, //! Failed to encrypt the wallet
     RPC_WALLET_ALREADY_UNLOCKED         = -17, //! Wallet is already unlocked
-    RPC_WALLET_NOT_FOUND                = -18, //!< Invalid wallet specified
-    RPC_WALLET_NOT_SPECIFIED            = -19, //!< No wallet specified (error when there are multiple wallets loaded)
 };
 
 UniValue JSONRPCRequestObj(const std::string& strMethod, const UniValue& params, const UniValue& id);

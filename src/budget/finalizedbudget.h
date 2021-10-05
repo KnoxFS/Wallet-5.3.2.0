@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -106,16 +106,18 @@ public:
     }
 
     // Serialization for local DB
-    SERIALIZE_METHODS(CFinalizedBudget, obj)
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
-        READWRITE(LIMITED_STRING(obj.strBudgetName, 20));
-        READWRITE(obj.nFeeTXHash);
-        READWRITE(obj.nTime);
-        READWRITE(obj.nBlockStart);
-        READWRITE(obj.vecBudgetPayments);
-        READWRITE(obj.fAutoChecked);
-        READWRITE(obj.mapVotes);
-        READWRITE(obj.strProposals);
+        READWRITE(LIMITED_STRING(strBudgetName, 20));
+        READWRITE(nFeeTXHash);
+        READWRITE(nTime);
+        READWRITE(nBlockStart);
+        READWRITE(vecBudgetPayments);
+        READWRITE(fAutoChecked);
+        READWRITE(mapVotes);
+        READWRITE(strProposals);
     }
 
     // Serialization for network messages.
@@ -153,14 +155,19 @@ public:
         nAmount(_nAmount)
     {}
 
+    ADD_SERIALIZE_METHODS;
+
     //for saving to the serialized db
-    SERIALIZE_METHODS(CTxBudgetPayment, obj) { READWRITE(obj.payee, obj.nAmount, obj.nProposalHash); }
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(*(CScriptBase*)(&payee));
+        READWRITE(nAmount);
+        READWRITE(nProposalHash);
+    }
 
     // compare payments by proposal hash
-    inline bool operator>(const CTxBudgetPayment& other) const
-    {
-        return UintToArith256(nProposalHash) > UintToArith256(other.nProposalHash);
-    }
+    inline bool operator>(const CTxBudgetPayment& other) const { return nProposalHash > other.nProposalHash; }
 
 };
 

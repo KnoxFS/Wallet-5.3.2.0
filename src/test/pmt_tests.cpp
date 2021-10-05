@@ -1,5 +1,5 @@
 // Copyright (c) 2012-2013 The Bitcoin Core developers
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,7 +9,7 @@
 #include "uint256.h"
 #include "version.h"
 #include "consensus/merkle.h"
-#include "test/test_pivx.h"
+#include "test/test_knoxfs.h"
 
 #include <vector>
 
@@ -23,7 +23,8 @@ public:
     void Damage() {
         unsigned int n = InsecureRandRange(vHash.size());
         int bit = InsecureRandBits(8);
-        *(vHash[n].begin() + (bit>>3)) ^= 1<<(bit&7);
+        uint256 &hash = vHash[n];
+        hash ^= ((uint256)1 << bit);
     }
 };
 

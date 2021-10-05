@@ -1,5 +1,5 @@
-PIVX Core version v5.0.1 is now available from: https://github.com/pivx-project/pivx/releases
-Please report bugs using the issue tracker at github: https://github.com/pivx-project/pivx/issues
+KFX Core version v5.0.1 is now available from: https://github.com/knoxfs-project/knoxfs/releases
+Please report bugs using the issue tracker at github: https://github.com/knoxfs-project/knoxfs/issues
 
 Mandatory Update
 ----

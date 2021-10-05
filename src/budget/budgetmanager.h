@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,14 +8,11 @@
 
 #include "budget/budgetproposal.h"
 #include "budget/finalizedbudget.h"
-#include "validationinterface.h"
-
-class CValidationState;
 
 //
 // Budget Manager : Contains all proposals for the budget
 //
-class CBudgetManager : public CValidationInterface
+class CBudgetManager
 {
 protected:
     // map budget hash --> CollTx hash.
@@ -53,9 +50,6 @@ public:
     mutable RecursiveMutex cs_finalizedvotes;
     mutable RecursiveMutex cs_votes;
 
-    // budget finalization
-    std::string strBudgetMode = "";
-
     CBudgetManager() {}
 
     void ClearSeen()
@@ -63,8 +57,6 @@ public:
         WITH_LOCK(cs_votes, mapSeenProposalVotes.clear(); );
         WITH_LOCK(cs_finalizedvotes, mapSeenFinalizedBudgetVotes.clear(); );
     }
-
-    void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
 
     bool HaveProposal(const uint256& propHash) const { LOCK(cs_proposals); return mapProposals.count(propHash); }
     bool HaveSeenProposalVote(const uint256& voteHash) const { LOCK(cs_votes); return mapSeenProposalVotes.count(voteHash); }
@@ -101,14 +93,13 @@ public:
     void ProcessMessage(CNode* pfrom, std::string& strCommand, CDataStream& vRecv);
     /// Process the message and returns the ban score (0 if no banning is needed)
     int ProcessMessageInner(CNode* pfrom, std::string& strCommand, CDataStream& vRecv);
-    void NewBlock();
+    void NewBlock(int height);
 
     int ProcessBudgetVoteSync(const uint256& nProp, CNode* pfrom);
     int ProcessProposal(CBudgetProposal& proposal);
+    int ProcessProposalVote(CBudgetVote& proposal, CNode* pfrom);
     int ProcessFinalizedBudget(CFinalizedBudget& finalbudget, CNode* pfrom);
-
-    bool ProcessProposalVote(CBudgetVote& proposal, CNode* pfrom, CValidationState& state);
-    bool ProcessFinalizedBudgetVote(CFinalizedBudgetVote& vote, CNode* pfrom, CValidationState& state);
+    int ProcessFinalizedBudgetVote(CFinalizedBudgetVote& vote, CNode* pfrom);
 
     // functions returning a pointer in the map. Need cs_proposals/cs_budgets locked from the caller
     CBudgetProposal* FindProposal(const uint256& nHash);
@@ -128,19 +119,16 @@ public:
     bool IsBudgetPaymentBlock(int nBlockHeight, int& nCountThreshold) const;
     bool AddProposal(CBudgetProposal& budgetProposal);
     bool AddFinalizedBudget(CFinalizedBudget& finalizedBudget, CNode* pfrom = nullptr);
-    void ForceAddFinalizedBudget(const uint256& nHash, const uint256& feeTxId, const CFinalizedBudget& finalizedBudget);
     uint256 SubmitFinalBudget();
 
     bool UpdateProposal(const CBudgetVote& vote, CNode* pfrom, std::string& strError);
     bool UpdateFinalizedBudget(CFinalizedBudgetVote& vote, CNode* pfrom, std::string& strError);
     TrxValidationStatus IsTransactionValid(const CTransaction& txNew, const uint256& nBlockHash, int nBlockHeight) const;
     std::string GetRequiredPaymentsString(int nBlockHeight);
-    bool FillBlockPayee(CMutableTransaction& txCoinbase, CMutableTransaction& txCoinstake, const int nHeight, bool fProofOfStake) const;
+    bool FillBlockPayee(CMutableTransaction& txNew, const int nHeight, bool fProofOfStake) const;
 
     // Only initialized masternodes: sign and submit votes on valid finalized budgets
     void VoteOnFinalizedBudgets();
-
-    int CountProposals() { LOCK(cs_proposals); return mapProposals.size(); }
 
     void CheckOrphanVotes();
     void Clear()
@@ -174,23 +162,30 @@ public:
     // Remove proposal/budget by FeeTx (called when a block is disconnected)
     void RemoveByFeeTxId(const uint256& feeTxId);
 
-    SERIALIZE_METHODS(CBudgetManager, obj)
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
         {
-            LOCK(obj.cs_proposals);
-            READWRITE(obj.mapProposals, obj.mapFeeTxToProposal);
+            LOCK(cs_proposals);
+            READWRITE(mapProposals);
+            READWRITE(mapFeeTxToProposal);
         }
         {
-            LOCK(obj.cs_votes);
-            READWRITE(obj.mapSeenProposalVotes, obj.mapOrphanProposalVotes);
+            LOCK(cs_votes);
+            READWRITE(mapSeenProposalVotes);
+            READWRITE(mapOrphanProposalVotes);
         }
         {
-            LOCK(obj.cs_budgets);
-            READWRITE(obj.mapFinalizedBudgets, obj.mapFeeTxToBudget, obj.mapUnconfirmedFeeTx);
+            LOCK(cs_budgets);
+            READWRITE(mapFinalizedBudgets);
+            READWRITE(mapFeeTxToBudget);
+            READWRITE(mapUnconfirmedFeeTx);
         }
         {
-            LOCK(obj.cs_finalizedvotes);
-            READWRITE(obj.mapSeenFinalizedBudgetVotes, obj.mapOrphanFinalizedBudgetVotes);
+            LOCK(cs_finalizedvotes);
+            READWRITE(mapSeenFinalizedBudgetVotes);
+            READWRITE(mapOrphanFinalizedBudgetVotes);
         }
     }
 };

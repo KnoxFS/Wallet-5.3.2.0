@@ -9,19 +9,16 @@ Two nodes. Node1 is under test. Node0 is providing transactions and generating b
 - Start node1, shutdown and backup wallet.
 - Generate 110 keys (enough to drain the keypool). Store key 90 (in the initial keypool) and key 110 (beyond the initial keypool). Send funds to key 90 and key 110.
 - Stop node1, clear the datadir, move wallet file back into the datadir and restart node1.
-- connect node1 to node0. Verify that they sync and node1 receives its funds.
-"""
-
+- connect node1 to node0. Verify that they sync and node1 receives its funds."""
 import shutil
 
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KnoxFSTestFramework
 from test_framework.util import (
     assert_equal,
     connect_nodes,
 )
 
-
-class KeypoolRestoreTest(PivxTestFramework):
+class KeypoolRestoreTest(KnoxFSTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 2
@@ -36,7 +33,7 @@ class KeypoolRestoreTest(PivxTestFramework):
 
         self.stop_node(1)
 
-        shutil.copyfile(self.tmpdir + "/node1/regtest/wallets/wallet.dat", self.tmpdir + "/wallet.bak")
+        shutil.copyfile(self.tmpdir + "/node1/regtest/wallet.dat", self.tmpdir + "/wallet.bak")
         self.start_node(1, self.extra_args[1])
         connect_nodes(self.nodes[0], 1)
 
@@ -59,7 +56,7 @@ class KeypoolRestoreTest(PivxTestFramework):
 
         self.stop_node(1)
 
-        shutil.copyfile(self.tmpdir + "/wallet.bak", self.tmpdir + "/node1/regtest/wallets/wallet.dat")
+        shutil.copyfile(self.tmpdir + "/wallet.bak", self.tmpdir + "/node1/regtest/wallet.dat")
 
         self.log.info("Verify keypool is restored and balance is correct")
 

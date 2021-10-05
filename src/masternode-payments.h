@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,7 +8,7 @@
 
 #include "key.h"
 #include "masternode.h"
-#include "validationinterface.h"
+#include <boost/lexical_cast.hpp>
 
 
 extern RecursiveMutex cs_vecPayments;
@@ -18,23 +18,17 @@ extern RecursiveMutex cs_mapMasternodePayeeVotes;
 class CMasternodePayments;
 class CMasternodePaymentWinner;
 class CMasternodeBlockPayees;
-class CValidationState;
 
 extern CMasternodePayments masternodePayments;
 
 #define MNPAYMENTS_SIGNATURES_REQUIRED 6
 #define MNPAYMENTS_SIGNATURES_TOTAL 10
 
-bool IsBlockPayeeValid(const CBlock& block, const CBlockIndex* pindexPrev);
+void ProcessMessageMasternodePayments(CNode* pfrom, std::string& strCommand, CDataStream& vRecv);
+bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight);
 std::string GetRequiredPaymentsString(int nBlockHeight);
-bool IsBlockValueValid(int nHeight, CAmount& nExpectedValue, CAmount nMinted, CAmount& nBudgetAmt);
-void FillBlockPayee(CMutableTransaction& txCoinbase, CMutableTransaction& txCoinstake, const CBlockIndex* pindexPrev, bool fProofOfStake);
-
-/**
- * Check coinbase output value for blocks after v6.0 enforcement.
- * It must pay the masternode for regular blocks and a proposal during superblocks.
- */
-bool IsCoinbaseValueValid(const CTransactionRef& tx, CAmount nBudgetAmt, CValidationState& _state);
+bool IsBlockValueValid(int nHeight, CAmount& nExpectedValue, CAmount nMinted);
+void FillBlockPayee(CMutableTransaction& txNew, const int nHeight, bool fProofOfStake);
 
 void DumpMasternodePayments();
 
@@ -80,7 +74,14 @@ public:
         nVotes = nVotesIn;
     }
 
-    SERIALIZE_METHODS(CMasternodePayee, obj) { READWRITE(obj.scriptPubKey, obj.nVotes); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(*(CScriptBase*)(&scriptPubKey));
+        READWRITE(nVotes);
+    }
 };
 
 // Keep track of votes for payees from masternodes
@@ -116,12 +117,12 @@ public:
         vecPayments.push_back(c);
     }
 
-    bool GetPayee(CScript& payee) const
+    bool GetPayee(CScript& payee)
     {
         LOCK(cs_vecPayments);
 
         int nVotes = -1;
-        for (const CMasternodePayee& p : vecPayments) {
+        for (CMasternodePayee& p : vecPayments) {
             if (p.nVotes > nVotes) {
                 payee = p.scriptPubKey;
                 nVotes = p.nVotes;
@@ -145,39 +146,52 @@ public:
     bool IsTransactionValid(const CTransaction& txNew);
     std::string GetRequiredPaymentsString();
 
-    SERIALIZE_METHODS(CMasternodeBlockPayees, obj) { READWRITE(obj.nBlockHeight, obj.vecPayments); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(nBlockHeight);
+        READWRITE(vecPayments);
+    }
 };
 
 // for storing the winning payments
-class CMasternodePaymentWinner : public CSignedMessage
+class CMasternodePaymentWinner
 {
 public:
     CTxIn vinMasternode;
     int nBlockHeight;
     CScript payee;
+    std::vector<unsigned char> vchSig;
 
-    CMasternodePaymentWinner() :
-        CSignedMessage(),
-        vinMasternode(),
-        nBlockHeight(0),
-        payee()
-    {}
+    CMasternodePaymentWinner()
+    {
+        nBlockHeight = 0;
+        vinMasternode = CTxIn();
+        payee = CScript();
+    }
 
-    CMasternodePaymentWinner(const CTxIn& vinIn, int nHeight):
-        CSignedMessage(),
-        vinMasternode(vinIn),
-        nBlockHeight(nHeight),
-        payee()
-    {}
+    CMasternodePaymentWinner(CTxIn vinIn)
+    {
+        nBlockHeight = 0;
+        vinMasternode = vinIn;
+        payee = CScript();
+    }
 
-    uint256 GetHash() const;
+    uint256 GetHash()
+    {
+        CHashWriter ss(SER_GETHASH, PROTOCOL_VERSION);
+        ss << payee;
+        ss << nBlockHeight;
+        ss << vinMasternode.prevout;
 
-    // override CSignedMessage functions
-    uint256 GetSignatureHash() const override { return GetHash(); }
-    std::string GetStrMessage() const override;
-    CTxIn GetVin() const { return vinMasternode; };
+        return ss.GetHash();
+    }
 
-    bool IsValid(CNode* pnode, std::string& strError, int chainHeight);
+    bool Sign(CKey& keyMasternode, CPubKey& pubKeyMasternode);
+    bool IsValid(CNode* pnode, std::string& strError);
+    bool SignatureValid();
     void Relay();
 
     void AddPayee(const CScript& payeeIn)
@@ -185,7 +199,16 @@ public:
         payee = payeeIn;
     }
 
-    SERIALIZE_METHODS(CMasternodePaymentWinner, obj) { READWRITE(obj.vinMasternode, obj.nBlockHeight, obj.payee, obj.vchSig, obj.nMessVersion); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(vinMasternode);
+        READWRITE(nBlockHeight);
+        READWRITE(*(CScriptBase*)(&payee));
+        READWRITE(vchSig);
+    }
 
     std::string ToString()
     {
@@ -203,7 +226,7 @@ public:
 // Keeps track of who should get paid for which blocks
 //
 
-class CMasternodePayments : public CValidationInterface
+class CMasternodePayments
 {
 private:
     int nLastBlockHeight;
@@ -225,22 +248,14 @@ public:
         mapMasternodePayeeVotes.clear();
     }
 
-    void UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload) override;
-
     bool AddWinningMasternode(CMasternodePaymentWinner& winner);
-    void ProcessBlock(int nBlockHeight);
+    bool ProcessBlock(int nBlockHeight);
 
     void Sync(CNode* node, int nCountNeeded);
     void CleanPaymentList(int mnCount, int nHeight);
 
-    // get the masternode payment outs for block built on top of pindexPrev
-    bool GetMasternodeTxOuts(const CBlockIndex* pindexPrev, std::vector<CTxOut>& voutMasternodePaymentsRet) const;
-
-    // can be removed after transition to DMN
-    bool GetLegacyMasternodeTxOut(int nHeight, std::vector<CTxOut>& voutMasternodePaymentsRet) const;
-    bool GetBlockPayee(int nBlockHeight, CScript& payee) const;
-
-    bool IsTransactionValid(const CTransaction& txNew, const CBlockIndex* pindexPrev);
+    bool GetBlockPayee(int nBlockHeight, CScript& payee);
+    bool IsTransactionValid(const CTransaction& txNew, int nBlockHeight);
     bool IsScheduled(const CMasternode& mn, int nNotBlockHeight);
 
     bool CanVote(const COutPoint& outMasternode, int nBlockHeight)
@@ -260,10 +275,17 @@ public:
 
     void ProcessMessageMasternodePayments(CNode* pfrom, std::string& strCommand, CDataStream& vRecv);
     std::string GetRequiredPaymentsString(int nBlockHeight);
-    void FillBlockPayee(CMutableTransaction& txCoinbase, CMutableTransaction& txCoinstake, const CBlockIndex* pindexPrev, bool fProofOfStake) const;
+    void FillBlockPayee(CMutableTransaction& txNew, int64_t nFees, bool fProofOfStake);
     std::string ToString() const;
 
-    SERIALIZE_METHODS(CMasternodePayments, obj) { READWRITE(obj.mapMasternodePayeeVotes, obj.mapMasternodeBlocks); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(mapMasternodePayeeVotes);
+        READWRITE(mapMasternodeBlocks);
+    }
 };
 
 

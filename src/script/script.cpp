@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin developers
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,8 +8,15 @@
 #include "tinyformat.h"
 #include "utilstrencodings.h"
 
-#include <atomic>
-
+namespace {
+inline std::string ValueString(const std::vector<unsigned char>& vch)
+{
+    if (vch.size() <= 4)
+        return strprintf("%d", CScriptNum(vch, false).getint());
+    else
+        return HexStr(vch);
+}
+} // anon namespace
 
 const char* GetOpName(opcodetype opcode)
 {
@@ -148,8 +155,7 @@ const char* GetOpName(opcodetype opcode)
     case OP_ZEROCOINPUBLICSPEND    : return "OP_ZEROCOINPUBLICSPEND";
 
     // cold staking
-    case OP_CHECKCOLDSTAKEVERIFY_LOF   : return "OP_CHECKCOLDSTAKEVERIFY_LOF";
-    case OP_CHECKCOLDSTAKEVERIFY       : return "OP_CHECKCOLDSTAKEVERIFY";
+    case OP_CHECKCOLDSTAKEVERIFY   : return "OP_CHECKCOLDSTAKEVERIFY";
 
     case OP_INVALIDOPCODE          : return "OP_INVALIDOPCODE";
 
@@ -175,7 +181,7 @@ unsigned int CScript::GetSigOpCount(bool fAccurate) const
             if (fAccurate && lastOpcode >= OP_1 && lastOpcode <= OP_16)
                 n += DecodeOP_N(lastOpcode);
             else
-                n += MAX_PUBKEYS_PER_MULTISIG;
+                n += 20;
         }
         lastOpcode = opcode;
     }
@@ -226,26 +232,25 @@ bool CScript::IsPayToScriptHash() const
             (*this)[22] == OP_EQUAL);
 }
 
+// contextual flag to guard the new rules for P2CS.
+// can be removed once v5.2 enforcement is activated.
+std::atomic<bool> g_newP2CSRules{false};
+
 // P2CS script: either with or without last output free
 bool CScript::IsPayToColdStaking() const
 {
     return (this->size() == 51 &&
-            (*this)[0] == OP_DUP &&
-            (*this)[1] == OP_HASH160 &&
+            (!g_newP2CSRules || (*this)[0] == OP_DUP) &&
+            (!g_newP2CSRules || (*this)[1] == OP_HASH160) &&
             (*this)[2] == OP_ROT &&
-            (*this)[3] == OP_IF &&
-            ((*this)[4] == OP_CHECKCOLDSTAKEVERIFY || (*this)[4] == OP_CHECKCOLDSTAKEVERIFY_LOF) &&
+            (!g_newP2CSRules || (*this)[3] == OP_IF) &&
+            (*this)[4] == OP_CHECKCOLDSTAKEVERIFY &&
             (*this)[5] == 0x14 &&
-            (*this)[26] == OP_ELSE &&
+            (!g_newP2CSRules || (*this)[26] == OP_ELSE) &&
             (*this)[27] == 0x14 &&
-            (*this)[48] == OP_ENDIF &&
+            (!g_newP2CSRules || (*this)[48] == OP_ENDIF) &&
             (*this)[49] == OP_EQUALVERIFY &&
             (*this)[50] == OP_CHECKSIG);
-}
-
-bool CScript::IsPayToColdStakingLOF() const
-{
-    return IsPayToColdStaking() && (*this)[4] == OP_CHECKCOLDSTAKEVERIFY_LOF;
 }
 
 bool CScript::StartsWithOpcode(const opcodetype opcode) const
@@ -288,6 +293,29 @@ bool CScript::IsPushOnly(const_iterator pc) const
 bool CScript::IsPushOnly() const
 {
     return this->IsPushOnly(begin());
+}
+
+std::string CScript::ToString() const
+{
+    std::string str;
+    opcodetype opcode;
+    std::vector<unsigned char> vch;
+    const_iterator pc = begin();
+    while (pc < end())
+    {
+        if (!str.empty())
+            str += " ";
+        if (!GetOp(pc, opcode, vch))
+        {
+            str += "[error]";
+            return str;
+        }
+        if (0 <= opcode && opcode <= OP_PUSHDATA4)
+            str += ValueString(vch);
+        else
+            str += GetOpName(opcode);
+    }
+    return str;
 }
 
 size_t CScript::DynamicMemoryUsage() const

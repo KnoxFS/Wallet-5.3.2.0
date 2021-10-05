@@ -4,14 +4,12 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Dummy Socks5 server for testing."""
 
+import socket, threading, queue
 import logging
-import queue
-import socket
-import threading
 
 logger = logging.getLogger("TestFramework.socks5")
 
-# Protocol constants
+### Protocol constants
 class Command:
     CONNECT = 0x01
 
@@ -20,7 +18,7 @@ class AddressType:
     DOMAINNAME = 0x03
     IPV6 = 0x04
 
-# Utility functions
+### Utility functions
 def recvall(s, n):
     """Receive n bytes from a socket, or fail."""
     rv = bytearray()
@@ -32,7 +30,7 @@ def recvall(s, n):
         n -= len(d)
     return rv
 
-# Implementation classes
+### Implementation classes
 class Socks5Configuration():
     """Proxy configuration."""
     def __init__(self):

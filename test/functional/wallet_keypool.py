@@ -4,13 +4,10 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the wallet keypool and interaction with wallet encryption/locking."""
 
-import time
+from test_framework.test_framework import KnoxFSTestFramework
+from test_framework.util import *
 
-from test_framework.test_framework import PivxTestFramework
-from test_framework.util import assert_equal, assert_raises_rpc_error
-
-
-class KeyPoolTest(PivxTestFramework):
+class KeyPoolTest(KnoxFSTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.extra_args = [['-keypool=1']]
@@ -18,7 +15,7 @@ class KeyPoolTest(PivxTestFramework):
     def run_test(self):
         nodes = self.nodes
         addr_before_encrypting = nodes[0].getnewaddress()
-        nodes[0].validateaddress(addr_before_encrypting)
+        addr_before_encrypting_data = nodes[0].validateaddress(addr_before_encrypting)
 
         # Encrypt wallet and wait to terminate
         nodes[0].node_encrypt_wallet('test')
@@ -26,7 +23,7 @@ class KeyPoolTest(PivxTestFramework):
         self.start_node(0, self.extra_args[0])
         # Keep creating keys
         addr = nodes[0].getnewaddress()
-        nodes[0].validateaddress(addr)
+        addr_data = nodes[0].validateaddress(addr)
         assert_raises_rpc_error(-12, "Keypool ran out, please call keypoolrefill first, or unlock the wallet.",
                                 nodes[0].getnewaddress)
 

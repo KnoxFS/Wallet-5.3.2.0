@@ -1,7 +1,7 @@
 // Copyright (c) 2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2019 The PIVX developers
+// Copyright (c) 2015-2019 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,12 +9,17 @@
 
 #include "random.h"
 #include "tinyformat.h"
-#include "util/system.h"
+#include "util.h"
 #include "utilstrencodings.h"
 #include "utiltime.h"
+#include "version.h"
+
+#include <stdint.h>
+#include <fstream>
+
 
 /**
- * JSON-RPC protocol.  PIVX speaks version 1.0 for maximum compatibility,
+ * JSON-RPC protocol.  KFX speaks version 1.0 for maximum compatibility,
  * but uses JSON-RPC 1.1/2.0 standards for parts of the 1.0 standard that were
  * unspecified (HTTP errors and contents of 'error').
  *
@@ -73,24 +78,23 @@ fs::path GetAuthCookieFile()
 
 bool GenerateAuthCookie(std::string *cookie_out)
 {
-    const size_t COOKIE_SIZE = 32;
-    unsigned char rand_pwd[COOKIE_SIZE];
-    GetRandBytes(rand_pwd, COOKIE_SIZE);
-    std::string cookie = COOKIEAUTH_USER + ":" + HexStr(rand_pwd);
+    unsigned char rand_pwd[32];
+    GetRandBytes(rand_pwd, 32);
+    std::string cookie = COOKIEAUTH_USER + ":" + EncodeBase64(&rand_pwd[0],32);
 
     /** the umask determines what permissions are used to create this file -
      * these are set to 077 in init.cpp unless overridden with -sysperms.
      */
-    fsbridge::ofstream file;
-    fs::path filepath_tmp = GetAuthCookieFile();
-    file.open(filepath_tmp);
+    std::ofstream file;
+    fs::path filepath = GetAuthCookieFile();
+    file.open(filepath.string().c_str());
     if (!file.is_open()) {
-        LogPrintf("Unable to open cookie authentication file %s for writing\n", filepath_tmp.string());
+        LogPrintf("Unable to open cookie authentication file %s for writing\n", filepath.string());
         return false;
     }
     file << cookie;
     file.close();
-    LogPrintf("Generated RPC authentication cookie %s\n", filepath_tmp.string());
+    LogPrintf("Generated RPC authentication cookie %s\n", filepath.string());
 
     if (cookie_out)
         *cookie_out = cookie;
@@ -99,10 +103,10 @@ bool GenerateAuthCookie(std::string *cookie_out)
 
 bool GetAuthCookie(std::string *cookie_out)
 {
-    fsbridge::ifstream file;
+    std::ifstream file;
     std::string cookie;
     fs::path filepath = GetAuthCookieFile();
-    file.open(filepath);
+    file.open(filepath.string().c_str());
     if (!file.is_open())
         return false;
     std::getline(file, cookie);
@@ -118,6 +122,6 @@ void DeleteAuthCookie()
     try {
         fs::remove(GetAuthCookieFile());
     } catch (const fs::filesystem_error& e) {
-        LogPrintf("%s: Unable to remove random auth cookie file: %s\n", __func__, fsbridge::get_filesystem_error_message(e));
+        LogPrintf("%s: Unable to remove random auth cookie file: %s\n", __func__, e.what());
     }
 }

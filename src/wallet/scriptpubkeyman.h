@@ -1,10 +1,10 @@
 // Copyright (c) 2019 The Bitcoin Core developers
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_SCRIPTPUBKEYMAN_H
-#define PIVX_SCRIPTPUBKEYMAN_H
+#ifndef KFX_SCRIPTPUBKEYMAN_H
+#define KFX_SCRIPTPUBKEYMAN_H
 
 #include "wallet/hdchain.h"
 #include "wallet/wallet.h"
@@ -38,7 +38,7 @@ public:
     bool SetupGeneration(bool newKeypool = true, bool force = false, bool memOnly = false);
 
     /** Upgrades the wallet to the specified version */
-    bool Upgrade(const int prev_version, std::string& error);
+    bool Upgrade(const int& prev_version, std::string& error);
 
     /* Returns true if the wallet can generate new keys */
     bool CanGenerateKeys();
@@ -92,7 +92,7 @@ public:
     //! First wallet key time
     void UpdateTimeFirstKey(int64_t nCreateTime);
     //! Generate a new key
-    CPubKey GenerateNewKey(WalletBatch& batch, const uint8_t& type = HDChain::ChangeType::EXTERNAL);
+    CPubKey GenerateNewKey(CWalletDB& batch, const uint8_t& type = HDChain::ChangeType::EXTERNAL);
 
 
     //! Fetches a key from the keypool
@@ -130,7 +130,7 @@ private:
     CHDChain hdChain;
 
     /* TODO: This has not been implemented yet.. */
-    WalletBatch *encrypted_batch = nullptr;
+    CWalletDB *encrypted_batch = nullptr;
 
     // Key pool maps
     std::set<int64_t> setInternalKeyPool;
@@ -145,13 +145,13 @@ private:
     bool AddKeyPubKeyInner(const CKey& key, const CPubKey &pubkey);
 
     //! Adds a key to the store, and saves it to disk.
-    bool AddKeyPubKeyWithDB(WalletBatch &batch,const CKey& key, const CPubKey &pubkey);
+    bool AddKeyPubKeyWithDB(CWalletDB &batch,const CKey& key, const CPubKey &pubkey);
     /* Complete me */
-    void AddKeypoolPubkeyWithDB(const CPubKey& pubkey, const uint8_t& type, WalletBatch& batch);
-    void GeneratePool(WalletBatch& batch, int64_t targetSize, const uint8_t& type);
+    void AddKeypoolPubkeyWithDB(const CPubKey& pubkey, const uint8_t& type, CWalletDB& batch);
+    void GeneratePool(CWalletDB& batch, int64_t targetSize, const uint8_t& type);
 
     /* HD derive new child key (on internal or external chain) */
-    void DeriveNewChildKey(WalletBatch &batch, CKeyMetadata& metadata, CKey& secret, const uint8_t& type = HDChain::ChangeType::EXTERNAL);
+    void DeriveNewChildKey(CWalletDB &batch, CKeyMetadata& metadata, CKey& secret, const uint8_t& type = HDChain::ChangeType::EXTERNAL);
 
     /**
      * Marks all keys in the keypool up to and including reserve_key as used.
@@ -160,4 +160,4 @@ private:
 };
 
 
-#endif //PIVX_SCRIPTPUBKEYMAN_H
+#endif //KFX_SCRIPTPUBKEYMAN_H

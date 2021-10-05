@@ -10,16 +10,17 @@
 #include "consensus/validation.h"
 #include "pow.h"
 #include "random.h"
-#include "test/test_pivx.h"
-#include "util/blockstatecatcher.h"
+#include "test/test_knoxfs.h"
 #include "validation.h"
 #include "validationinterface.h"
 
+struct RegtestingSetup : public TestingSetup {
+    RegtestingSetup() : TestingSetup() {
+        SelectParams(CBaseChainParams::REGTEST);
+    }
+};
 
-#define ASSERT_WITH_MSG(cond, msg) if (!cond) { BOOST_ERROR(msg); }
-
-
-BOOST_FIXTURE_TEST_SUITE(validation_block_tests, RegTestingSetup)
+BOOST_FIXTURE_TEST_SUITE(validation_block_tests, RegtestingSetup)
 
 struct TestSubscriber : public CValidationInterface {
     uint256 m_expected_tip;
@@ -31,7 +32,7 @@ struct TestSubscriber : public CValidationInterface {
         BOOST_CHECK_EQUAL(m_expected_tip, pindexNew->GetBlockHash());
     }
 
-    void BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex)
+    void BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex, const std::vector<CTransactionRef>& txnConflicted)
     {
         BOOST_CHECK_EQUAL(m_expected_tip, block->hashPrevBlock);
         BOOST_CHECK_EQUAL(m_expected_tip, pindex->pprev->GetBlockHash());
@@ -63,6 +64,17 @@ std::shared_ptr<CBlock> Block(const uint256& prev_hash)
     CMutableTransaction txCoinbase(*pblock->vtx[0]);
     txCoinbase.vout.resize(1);
     pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
+
+    return pblock;
+}
+
+std::shared_ptr<CBlock> FinalizeBlock(std::shared_ptr<CBlock> pblock)
+{
+    pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
+
+    while (!CheckProofOfWork(pblock->GetHash(), pblock->nBits)) {
+        ++(pblock->nNonce);
+    }
 
     return pblock;
 }
@@ -117,8 +129,9 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
         BuildChain(Params().GenesisBlock().GetHash(), 100, 15, 10, 500, blocks);
     }
 
+    CValidationState state;
     // Connect the genesis block and drain any outstanding events
-    BOOST_CHECK_MESSAGE(ProcessNewBlock(std::make_shared<CBlock>(Params().GenesisBlock()), nullptr), "Error: genesis not connected");
+    BOOST_CHECK_MESSAGE(ProcessNewBlock(state, nullptr, std::make_shared<CBlock>(Params().GenesisBlock()), nullptr), "Error: genesis not connected");
     SyncWithValidationInterfaceQueue();
 
     // subscribe to events (this subscriber will validate event ordering)
@@ -132,23 +145,21 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
     boost::thread_group threads;
     for (int i = 0; i < 10; i++) {
         threads.create_thread([&blocks]() {
+            CValidationState state;
             for (int i = 0; i < 1000; i++) {
                 auto block = blocks[GetRand(blocks.size() - 1)];
-                ProcessNewBlock(block, nullptr);
+                ProcessNewBlock(state, nullptr, block, nullptr);
             }
 
-            BlockStateCatcher sc(UINT256_ZERO);
-            sc.registerEvent();
             // to make sure that eventually we process the full chain - do it here
             for (const auto& block : blocks) {
                 if (block->vtx.size() == 1) {
-                    sc.setBlockHash(block->GetHash());
-                    bool processed = ProcessNewBlock(block, nullptr);
+                    bool processed = ProcessNewBlock(state, nullptr, block, nullptr);
                     // Future to do: "prevblk-not-found" here is the only valid reason to not check processed flag.
-                    std::string stateReason = sc.state.GetRejectReason();
-                    if (sc.found && (stateReason == "duplicate" || stateReason == "prevblk-not-found" ||
-                        stateReason == "bad-prevblk" || stateReason == "blk-out-of-order")) continue;
-                    ASSERT_WITH_MSG(processed,  ("Error: " + sc.state.GetRejectReason()).c_str());
+                    if (state.GetRejectReason() == "duplicate" ||
+                        state.GetRejectReason() == "prevblk-not-found" ||
+                        state.GetRejectReason() == "bad-prevblk") continue;
+                    BOOST_ASSERT_MSG(processed,  ("Error: " + state.GetRejectReason()).c_str());
                 }
             }
         });
@@ -159,7 +170,6 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
         MilliSleep(100);
     }
 
-    SyncWithValidationInterfaceQueue();
     UnregisterValidationInterface(&sub);
 
     BOOST_CHECK_EQUAL(sub.m_expected_tip, WITH_LOCK(cs_main, return chainActive.Tip()->GetBlockHash()));

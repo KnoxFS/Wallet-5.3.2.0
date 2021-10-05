@@ -1,7 +1,7 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -11,19 +11,14 @@
 #include "chainparams.h"
 #include "primitives/block.h"
 #include "uint256.h"
-#include "util/system.h"
+#include "util.h"
 
 #include <math.h>
 
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader* pblock)
 {
-    const Consensus::Params& consensus = Params().GetConsensus();
-
-    if (consensus.fPowNoRetargeting)
-        return pindexLast->nBits;
-
-    /* current difficulty formula, pivx - DarkGravity v3, written by Evan Duffield - evan@dashpay.io */
+    /* current difficulty formula, knoxfs - DarkGravity v3, written by Evan Duffield - evan@dashpay.io */
     const CBlockIndex* BlockLastSolved = pindexLast;
     const CBlockIndex* BlockReading = pindexLast;
     int64_t nActualTimespan = 0;
@@ -31,35 +26,28 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     int64_t PastBlocksMin = 24;
     int64_t PastBlocksMax = 24;
     int64_t CountBlocks = 0;
-    arith_uint256 PastDifficultyAverage;
-    arith_uint256 PastDifficultyAveragePrev;
-    const arith_uint256& powLimit = UintToArith256(consensus.powLimit);
+    uint256 PastDifficultyAverage;
+    uint256 PastDifficultyAveragePrev;
+    const Consensus::Params& consensus = Params().GetConsensus();
 
     if (BlockLastSolved == NULL || BlockLastSolved->nHeight == 0 || BlockLastSolved->nHeight < PastBlocksMin) {
-        return powLimit.GetCompact();
+        return consensus.powLimit.GetCompact();
     }
 
     if (consensus.NetworkUpgradeActive(pindexLast->nHeight + 1, Consensus::UPGRADE_POS)) {
-        const bool fTimeV2 = !Params().IsRegTestNet() && consensus.IsTimeProtocolV2(pindexLast->nHeight+1);
-        const arith_uint256& bnTargetLimit = UintToArith256(consensus.ProofOfStakeLimit(fTimeV2));
-        const int64_t& nTargetTimespan = consensus.TargetTimespan(fTimeV2);
+        const uint256& bnTargetLimit = consensus.ProofOfStakeLimit(false);
+        const int64_t& nTargetTimespan = 60 * 40;
 
         int64_t nActualSpacing = 0;
         if (pindexLast->nHeight != 0)
             nActualSpacing = pindexLast->GetBlockTime() - pindexLast->pprev->GetBlockTime();
         if (nActualSpacing < 0)
             nActualSpacing = 1;
-        if (fTimeV2 && nActualSpacing > consensus.nTargetSpacing*10)
-            nActualSpacing = consensus.nTargetSpacing*10;
 
         // ppcoin: target change every block
         // ppcoin: retarget with exponential moving toward target spacing
-        arith_uint256 bnNew;
+        uint256 bnNew;
         bnNew.SetCompact(pindexLast->nBits);
-
-        // on first block with V2 time protocol, reduce the difficulty by a factor 16
-        if (fTimeV2 && !consensus.IsTimeProtocolV2(pindexLast->nHeight))
-            bnNew <<= 4;
 
         int64_t nInterval = nTargetTimespan / consensus.nTargetSpacing;
         bnNew *= ((nInterval - 1) * consensus.nTargetSpacing + nActualSpacing + nActualSpacing);
@@ -81,7 +69,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
             if (CountBlocks == 1) {
                 PastDifficultyAverage.SetCompact(BlockReading->nBits);
             } else {
-                PastDifficultyAverage = ((PastDifficultyAveragePrev * CountBlocks) + (arith_uint256().SetCompact(BlockReading->nBits))) / (CountBlocks + 1);
+                PastDifficultyAverage = ((PastDifficultyAveragePrev * CountBlocks) + (uint256().SetCompact(BlockReading->nBits))) / (CountBlocks + 1);
             }
             PastDifficultyAveragePrev = PastDifficultyAverage;
         }
@@ -99,7 +87,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         BlockReading = BlockReading->pprev;
     }
 
-    arith_uint256 bnNew(PastDifficultyAverage);
+    uint256 bnNew(PastDifficultyAverage);
 
     int64_t _nTargetTimespan = CountBlocks * consensus.nTargetSpacing;
 
@@ -112,8 +100,8 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     bnNew *= nActualTimespan;
     bnNew /= _nTargetTimespan;
 
-    if (bnNew > powLimit) {
-        bnNew = powLimit;
+    if (bnNew > consensus.powLimit) {
+        bnNew = consensus.powLimit;
     }
 
     return bnNew.GetCompact();
@@ -123,29 +111,31 @@ bool CheckProofOfWork(uint256 hash, unsigned int nBits)
 {
     bool fNegative;
     bool fOverflow;
-    arith_uint256 bnTarget;
+    uint256 bnTarget;
+
+    if (Params().IsRegTestNet()) return true;
 
     bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
 
     // Check range
-    if (fNegative || bnTarget.IsNull() || fOverflow || bnTarget > UintToArith256(Params().GetConsensus().powLimit))
+    if (fNegative || bnTarget.IsNull() || fOverflow || bnTarget > Params().GetConsensus().powLimit)
         return error("CheckProofOfWork() : nBits below minimum work");
 
     // Check proof of work matches claimed amount
-    if (UintToArith256(hash) > bnTarget)
+    if (hash > bnTarget)
         return error("CheckProofOfWork() : hash doesn't match nBits");
 
     return true;
 }
 
-arith_uint256 GetBlockProof(const CBlockIndex& block)
+uint256 GetBlockProof(const CBlockIndex& block)
 {
-    arith_uint256 bnTarget;
+    uint256 bnTarget;
     bool fNegative;
     bool fOverflow;
     bnTarget.SetCompact(block.nBits, &fNegative, &fOverflow);
     if (fNegative || fOverflow || bnTarget.IsNull())
-        return ARITH_UINT256_ZERO;
+        return UINT256_ZERO;
     // We need to compute 2**256 / (bnTarget+1), but we can't represent 2**256
     // as it's too large for a uint256. However, as 2**256 is at least as large
     // as bnTarget+1, it is equal to ((2**256 - bnTarget - 1) / (bnTarget+1)) + 1,

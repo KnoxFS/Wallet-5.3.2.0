@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin developers
-// Copyright (c) 2016-2020 The PIVX developers
+// Copyright (c) 2016-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,8 +9,8 @@
 #include "random.h"
 #include "pow.h"
 #include "uint256.h"
-#include "util/system.h"
-#include "util/vector.h"
+#include "util.h"
+#include "zknoxfs/zerocoin.h"
 
 #include <stdint.h>
 
@@ -37,7 +37,19 @@ struct CoinEntry
     char key;
     explicit CoinEntry(const COutPoint* ptr) : outpoint(const_cast<COutPoint*>(ptr)), key(DB_COIN)  {}
 
-    SERIALIZE_METHODS(CoinEntry, obj) { READWRITE(obj.key, obj.outpoint->hash, VARINT(obj.outpoint->n)); }
+    template<typename Stream>
+    void Serialize(Stream &s) const {
+        s << key;
+        s << outpoint->hash;
+        s << VARINT(outpoint->n);
+    }
+
+    template<typename Stream>
+    void Unserialize(Stream& s) {
+        s >> key;
+        s >> outpoint->hash;
+        s >> VARINT(outpoint->n);
+    }
 };
 
 }
@@ -101,7 +113,7 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap& mapCoins,
     // A vector is used for future extensibility, as we may want to support
     // interrupting after partial writes from multiple independent reorgs.
     batch.Erase(DB_BEST_BLOCK);
-    batch.Write(DB_HEAD_BLOCKS, Vector(hashBlock, old_tip));
+    batch.Write(DB_HEAD_BLOCKS, std::vector<uint256>{hashBlock, old_tip});
 
     for (CCoinsMap::iterator it = mapCoins.begin(); it != mapCoins.end();) {
         if (it->second.flags & CCoinsCacheEntry::DIRTY) {
@@ -340,16 +352,52 @@ bool CBlockTreeDB::LoadBlockIndexGuts(std::function<CBlockIndex*(const uint256&)
     return true;
 }
 
+bool CBlockTreeDB::ReadLegacyBlockIndex(const uint256& blockHash, CLegacyBlockIndex& biRet)
+{
+    return Read(std::make_pair(DB_BLOCK_INDEX, blockHash), biRet);
+}
+
 CZerocoinDB::CZerocoinDB(size_t nCacheSize, bool fMemory, bool fWipe) : CDBWrapper(GetDataDir() / "zerocoin", nCacheSize, fMemory, fWipe)
 {
 }
 
-bool CZerocoinDB::WriteCoinSpendBatch(const std::vector<std::pair<CBigNum, uint256> >& spendInfo)
+bool CZerocoinDB::WriteCoinMintBatch(const std::vector<std::pair<libzerocoin::PublicCoin, uint256> >& mintInfo)
 {
     CDBBatch batch;
     size_t count = 0;
-    for (std::vector<std::pair<CBigNum, uint256> >::const_iterator it=spendInfo.begin(); it != spendInfo.end(); it++) {
-        CBigNum bnSerial = it->first;
+    for (std::vector<std::pair<libzerocoin::PublicCoin, uint256> >::const_iterator it=mintInfo.begin(); it != mintInfo.end(); it++) {
+        libzerocoin::PublicCoin pubCoin = it->first;
+        uint256 hash = GetPubCoinHash(pubCoin.getValue());
+        batch.Write(std::make_pair('m', hash), it->second);
+        ++count;
+    }
+
+    LogPrint(BCLog::COINDB, "Writing %u coin mints to db.\n", (unsigned int)count);
+    return WriteBatch(batch, true);
+}
+
+bool CZerocoinDB::ReadCoinMint(const CBigNum& bnPubcoin, uint256& hashTx)
+{
+    return ReadCoinMint(GetPubCoinHash(bnPubcoin), hashTx);
+}
+
+bool CZerocoinDB::ReadCoinMint(const uint256& hashPubcoin, uint256& hashTx)
+{
+    return Read(std::make_pair('m', hashPubcoin), hashTx);
+}
+
+bool CZerocoinDB::EraseCoinMint(const CBigNum& bnPubcoin)
+{
+    uint256 hash = GetPubCoinHash(bnPubcoin);
+    return Erase(std::make_pair('m', hash));
+}
+
+bool CZerocoinDB::WriteCoinSpendBatch(const std::vector<std::pair<libzerocoin::CoinSpend, uint256> >& spendInfo)
+{
+    CDBBatch batch;
+    size_t count = 0;
+    for (std::vector<std::pair<libzerocoin::CoinSpend, uint256> >::const_iterator it=spendInfo.begin(); it != spendInfo.end(); it++) {
+        CBigNum bnSerial = it->first.getCoinSerialNumber();
         CDataStream ss(SER_GETHASH, 0);
         ss << bnSerial;
         uint256 hash = Hash(ss.begin(), ss.end());
@@ -370,6 +418,11 @@ bool CZerocoinDB::ReadCoinSpend(const CBigNum& bnSerial, uint256& txHash)
     return Read(std::make_pair('s', hash), txHash);
 }
 
+bool CZerocoinDB::ReadCoinSpend(const uint256& hashSerial, uint256 &txHash)
+{
+    return Read(std::make_pair('s', hashSerial), txHash);
+}
+
 bool CZerocoinDB::EraseCoinSpend(const CBigNum& bnSerial)
 {
     CDataStream ss(SER_GETHASH, 0);
@@ -379,36 +432,24 @@ bool CZerocoinDB::EraseCoinSpend(const CBigNum& bnSerial)
     return Erase(std::make_pair('s', hash));
 }
 
-// Legacy Zerocoin Database
-static const char LZC_ACCUMCS = 'A';
-//static const char LZC_MAPSUPPLY = 'M'; // TODO: add removal for LZC_MAPSUPPLY key-value if is found in db
-
-bool CZerocoinDB::WriteAccChecksum(const uint32_t nChecksum, const libzerocoin::CoinDenomination denom, const int nHeight)
+bool CZerocoinDB::WipeCoins(std::string strType)
 {
-    return Write(std::make_pair(LZC_ACCUMCS, std::make_pair(nChecksum, denom)), nHeight);
-}
+    if (strType != "spends" && strType != "mints")
+        return error("%s: did not recognize type %s", __func__, strType);
 
-bool CZerocoinDB::ReadAccChecksum(const uint32_t nChecksum, const libzerocoin::CoinDenomination denom, int& nHeightRet)
-{
-    return Read(std::make_pair(LZC_ACCUMCS, std::make_pair(nChecksum, denom)), nHeightRet);
-}
-
-bool CZerocoinDB::EraseAccChecksum(const uint32_t nChecksum, const libzerocoin::CoinDenomination denom)
-{
-    return Erase(std::make_pair(LZC_ACCUMCS, std::make_pair(nChecksum, denom)));
-}
-
-bool CZerocoinDB::ReadAll(std::map<std::pair<uint32_t, libzerocoin::CoinDenomination>, int>& mapCheckpoints)
-{
     std::unique_ptr<CDBIterator> pcursor(NewIterator());
-    pcursor->Seek(std::make_pair(LZC_ACCUMCS, std::make_pair((uint32_t) 0, libzerocoin::CoinDenomination::ZQ_ERROR)));
+
+    char type = (strType == "spends" ? 's' : 'm');
+    pcursor->Seek(std::make_pair(type, UINT256_ZERO));
+    // Load mapBlockIndex
+    std::set<uint256> setDelete;
     while (pcursor->Valid()) {
         boost::this_thread::interruption_point();
-        std::pair<char, std::pair<uint32_t, libzerocoin::CoinDenomination>> key;
-        if (pcursor->GetKey(key) && key.first == LZC_ACCUMCS) {
-            int height;
-            if (pcursor->GetValue(height)) {
-                mapCheckpoints[key.second] = height;
+        std::pair<char, uint256> key;
+        if (pcursor->GetKey(key) && key.first == type) {
+            uint256 hash;
+            if (pcursor->GetValue(hash)) {
+                setDelete.insert(hash);
                 pcursor->Next();
             } else {
                 return error("%s : failed to read value", __func__);
@@ -418,36 +459,72 @@ bool CZerocoinDB::ReadAll(std::map<std::pair<uint32_t, libzerocoin::CoinDenomina
         }
     }
 
-    LogPrintf("%s: Total acc checksum records: %d\n", __func__, mapCheckpoints.size());
+    for (auto& hash : setDelete) {
+        if (!Erase(std::make_pair(type, hash)))
+            LogPrintf("%s: error failed to delete %s\n", __func__, hash.GetHex());
+    }
+
     return true;
 }
 
-void CZerocoinDB::WipeAccChecksums()
+
+// Legacy Zerocoin Database
+static const char LZC_ACCUMCS = 'A';
+static const char LZC_MAPSUPPLY = 'M';
+
+bool CZerocoinDB::WriteZCSupply(const std::map<libzerocoin::CoinDenomination, int64_t>& mapZCS)
+{
+    return Write(LZC_MAPSUPPLY, mapZCS);
+}
+
+bool CZerocoinDB::ReadZCSupply(std::map<libzerocoin::CoinDenomination, int64_t>& mapZCS) const
+{
+    return Read(LZC_MAPSUPPLY, mapZCS);
+}
+
+bool CZerocoinDB::WriteAccChecksum(const uint32_t& nChecksum, const libzerocoin::CoinDenomination denom, const int nHeight)
+{
+    return Write(std::make_pair(LZC_ACCUMCS, std::make_pair(nChecksum, denom)), nHeight);
+}
+
+bool CZerocoinDB::ReadAccChecksum(const uint32_t& nChecksum, const libzerocoin::CoinDenomination denom, int& nHeightRet)
+{
+    return Read(std::make_pair(LZC_ACCUMCS, std::make_pair(nChecksum, denom)), nHeightRet);
+}
+
+bool CZerocoinDB::EraseAccChecksum(const uint32_t& nChecksum, const libzerocoin::CoinDenomination denom)
+{
+    return Erase(std::make_pair(LZC_ACCUMCS, std::make_pair(nChecksum, denom)));
+}
+
+bool CZerocoinDB::WipeAccChecksums()
 {
     std::unique_ptr<CDBIterator> pcursor(NewIterator());
-    pcursor->Seek(std::make_pair(LZC_ACCUMCS, std::make_pair((uint32_t) 0, libzerocoin::CoinDenomination::ZQ_ERROR)));
-    std::set<std::pair<char, std::pair<uint32_t, libzerocoin::CoinDenomination>>> setDelete;
+    pcursor->Seek(std::make_pair(LZC_ACCUMCS, (uint32_t) 0));
+    std::set<uint32_t> setDelete;
     while (pcursor->Valid()) {
         boost::this_thread::interruption_point();
-        std::pair<char, std::pair<uint32_t, libzerocoin::CoinDenomination>> key;
+        std::pair<char, uint32_t> key;
         if (pcursor->GetKey(key) && key.first == LZC_ACCUMCS) {
-            setDelete.insert(key);
+            uint32_t acs;
+            if (pcursor->GetValue(acs)) {
+                setDelete.insert(acs);
+                pcursor->Next();
+            } else {
+                return error("%s : failed to read value", __func__);
+            }
         } else {
             break;
         }
-        pcursor->Next();
     }
 
-    int deleted = 0;
-    for (const auto& k : setDelete) {
-        if (!Erase(k)) {
-            LogPrintf("%s: failed to delete acc checksum %d-%d\n", __func__, k.second.first, k.second.second);
-        } else {
-            deleted++;
-        }
+    for (auto& acs : setDelete) {
+        if (!Erase(std::make_pair(LZC_ACCUMCS, acs)))
+            LogPrintf("%s: error failed to acc checksum %s\n", __func__, acs);
     }
 
-    LogPrintf("%s: % entries to delete. % entries deleted\n", __func__, setDelete.size(), deleted);
+    LogPrintf("%s: AccChecksum database removed.\n", __func__);
+    return true;
 }
 
 namespace {
@@ -471,7 +548,7 @@ public:
     {
         unsigned int nCode = 0;
         // version
-        unsigned int nVersionDummy;
+        int nVersionDummy;
         ::Unserialize(s, VARINT(nVersionDummy));
         // header code
         ::Unserialize(s, VARINT(nCode));
@@ -496,10 +573,10 @@ public:
         vout.assign(vAvail.size(), CTxOut());
         for (unsigned int i = 0; i < vAvail.size(); i++) {
             if (vAvail[i])
-                ::Unserialize(s, Using<TxOutCompression>(vout[i]));
+                ::Unserialize(s, REF(CTxOutCompressor(vout[i])));
         }
         // coinbase height
-        ::Unserialize(s, VARINT_MODE(nHeight, VarIntMode::NONNEGATIVE_SIGNED));
+        ::Unserialize(s, VARINT(nHeight));
     }
 };
 
@@ -549,53 +626,4 @@ bool CCoinsViewDB::Upgrade() {
     }
     db.WriteBatch(batch);
     return true;
-}
-
-Optional<int> AccumulatorCache::Get(uint32_t checksum, libzerocoin::CoinDenomination denom)
-{
-    const auto& p = std::make_pair(checksum, denom);
-
-    // First check the map in-memory.
-    const auto it = mapCheckpoints.find(p);
-    if (it != mapCheckpoints.end()) {
-        return Optional<int>(it->second);
-    }
-
-    // Not found. Check disk.
-    int checksum_height = 0;
-    if (db->ReadAccChecksum(checksum, denom, checksum_height)) {
-        // save in memory and return
-        mapCheckpoints[p] = checksum_height;
-        return Optional<int>(checksum_height);
-    }
-
-    // Not found. Scan the chain.
-    return nullopt;
-}
-
-void AccumulatorCache::Set(uint32_t checksum, libzerocoin::CoinDenomination denom, int height)
-{
-    // Update memory cache
-    mapCheckpoints[std::make_pair(checksum, denom)] = height;
-}
-
-void AccumulatorCache::Erase(uint32_t checksum, libzerocoin::CoinDenomination denom)
-{
-    // Update memory cache and database
-    mapCheckpoints.erase(std::make_pair(checksum, denom));
-    db->EraseAccChecksum(checksum, denom);
-}
-
-void AccumulatorCache::Flush()
-{
-    for (const auto& it : mapCheckpoints) {
-        // Write to disk
-        db->WriteAccChecksum(it.first.first, it.first.second, it.second);
-    }
-}
-
-void AccumulatorCache::Wipe()
-{
-    mapCheckpoints.clear();
-    db->WipeAccChecksums();
 }

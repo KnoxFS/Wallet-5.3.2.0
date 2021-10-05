@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
@@ -10,7 +10,7 @@
 #include "txdb.h" // for the zerocoinDB implementation.
 #include "validationinterface.h"
 
-bool DisconnectZerocoinTx(const CTransaction& tx);
-void CacheAccChecksum(const CBlockIndex* pindex, bool fWrite);
+bool DisconnectZerocoinTx(const CTransaction& tx, CZerocoinDB* zerocoinDB);
+void DataBaseAccChecksum(const CBlockIndex* pindex, bool fWrite);
 
 #endif //VALIDATION_ZEROCOIN_LEGACY_H

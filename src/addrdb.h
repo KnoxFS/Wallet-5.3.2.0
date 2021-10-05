@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2015 The Bitcoin Core developers
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -45,7 +45,15 @@ public:
         nCreateTime = nCreateTimeIn;
     }
 
-    SERIALIZE_METHODS(CBanEntry, obj) { READWRITE(obj.nVersion, obj.nCreateTime, obj.nBanUntil, obj.banReason); }
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(nVersion);
+        READWRITE(nCreateTime);
+        READWRITE(nBanUntil);
+        READWRITE(banReason);
+    }
 
     void SetNull()
     {
@@ -55,7 +63,7 @@ public:
         banReason = BanReasonUnknown;
     }
 
-    std::string banReasonToString() const
+    std::string banReasonToString()
     {
         switch (banReason) {
         case BanReasonNodeMisbehaving:
@@ -80,7 +88,7 @@ public:
     CAddrDB();
     bool Write(const CAddrMan& addr);
     bool Read(CAddrMan& addr);
-    static bool Read(CAddrMan& addr, CDataStream& ssPeers);
+    bool Read(CAddrMan& addr, CDataStream& ssPeers);
 };
 
 /** Access to the banlist database (banlist.dat) */

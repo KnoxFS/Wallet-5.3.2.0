@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 # Copyright (c) 2016 The Zcash developers
-# Copyright (c) 2020 The PIVX developers
+# Copyright (c) 2020 The KFX developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
+from test_framework.test_framework import KnoxFSTestFramework
+from test_framework.util import *
 from decimal import Decimal
-
-from test_framework.test_framework import PivxTestFramework
-from test_framework.util import assert_equal, assert_true, connect_nodes, get_coinstake_address
 
 def connect_nodes_bi(nodes, a, b):
     connect_nodes(nodes[a], b)
     connect_nodes(nodes[b], a)
 
-class WalletNullifiersTest (PivxTestFramework):
+class WalletNullifiersTest (KnoxFSTestFramework):
 
     def set_test_params(self):
         self.num_nodes = 4

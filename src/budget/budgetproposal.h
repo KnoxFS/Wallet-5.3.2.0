@@ -1,5 +1,5 @@
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -106,17 +106,19 @@ public:
     }
 
     // Serialization for local DB
-    SERIALIZE_METHODS(CBudgetProposal, obj)
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
-        READWRITE(LIMITED_STRING(obj.strProposalName, 20));
-        READWRITE(LIMITED_STRING(obj.strURL, 64));
-        READWRITE(obj.nBlockStart);
-        READWRITE(obj.nBlockEnd);
-        READWRITE(obj.nAmount);
-        READWRITE(obj.address);
-        READWRITE(obj.nFeeTXHash);
-        READWRITE(obj.nTime);
-        READWRITE(obj.mapVotes);
+        READWRITE(LIMITED_STRING(strProposalName, 20));
+        READWRITE(LIMITED_STRING(strURL, 64));
+        READWRITE(nBlockStart);
+        READWRITE(nBlockEnd);
+        READWRITE(nAmount);
+        READWRITE(*(CScriptBase*)(&address));
+        READWRITE(nFeeTXHash);
+        READWRITE(nTime);
+        READWRITE(mapVotes);
     }
 
     // Serialization for network messages.
@@ -125,17 +127,13 @@ public:
     void Relay();
 
     // compare proposals by proposal hash
-    inline bool operator>(const CBudgetProposal& other) const
-    {
-        return UintToArith256(GetHash()) > UintToArith256(other.GetHash());
-    }
-    //
+    inline bool operator>(const CBudgetProposal& other) const { return GetHash() > other.GetHash(); }
     // compare proposals pointers by net yes count (solve tie with feeHash)
     static inline bool PtrHigherYes(CBudgetProposal* a, CBudgetProposal* b)
     {
         const int netYes_a = a->GetYeas() - a->GetNays();
         const int netYes_b = b->GetYeas() - b->GetNays();
-        if (netYes_a == netYes_b) return UintToArith256(a->GetFeeTXHash()) > UintToArith256(b->GetFeeTXHash());
+        if (netYes_a == netYes_b) return a->GetFeeTXHash() > b->GetFeeTXHash();
         return netYes_a > netYes_b;
     }
 

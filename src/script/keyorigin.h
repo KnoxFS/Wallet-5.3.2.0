@@ -2,8 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_SCRIPT_KEYORIGIN_H
-#define PIVX_SCRIPT_KEYORIGIN_H
+#ifndef KFX_SCRIPT_KEYORIGIN_H
+#define KFX_SCRIPT_KEYORIGIN_H
 
 #include <serialize.h>
 #include <vector>
@@ -18,7 +18,13 @@ struct KeyOriginInfo
         return std::equal(std::begin(a.fingerprint), std::end(a.fingerprint), std::begin(b.fingerprint)) && a.path == b.path;
     }
 
-    SERIALIZE_METHODS(KeyOriginInfo, obj) { READWRITE(obj.fingerprint, obj.path); }
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(FLATDATA(fingerprint));
+        READWRITE(path);
+    }
 
     void clear()
     {
@@ -46,4 +52,4 @@ struct KeyOriginInfo
     }
 };
 
-#endif // PIVX_SCRIPT_KEYORIGIN_H
+#endif // KFX_SCRIPT_KEYORIGIN_H

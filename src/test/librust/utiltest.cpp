@@ -1,5 +1,5 @@
 // Copyright (c) 2016-2020 The Zcash developers
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php .
 
@@ -12,6 +12,16 @@
 #include <array>
 
 static const std::string T_SECRET_REGTEST = "cND2ZvtabDbJ1gucx9GWH6XT9kgTAqfb6cotPt5Q5CyxVDhid2EN";
+
+const Consensus::Params& RegtestActivateSapling() {
+    SelectParams(CBaseChainParams::REGTEST);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_V5_0, Consensus::NetworkUpgrade::ALWAYS_ACTIVE);
+    return Params().GetConsensus();
+}
+
+void RegtestDeactivateSapling() {
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_V5_0, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+}
 
 libzcash::SaplingExtendedSpendingKey GetTestMasterSaplingSpendingKey() {
     std::vector<unsigned char, secure_allocator<unsigned char>> rawSeed(32);

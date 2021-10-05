@@ -1,10 +1,10 @@
 // Copyright (c) 2018 The Zcash developers
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_CONSENSUS_UPGRADES_H
-#define PIVX_CONSENSUS_UPGRADES_H
+#ifndef KFX_CONSENSUS_UPGRADES_H
+#define KFX_CONSENSUS_UPGRADES_H
 
 #include "consensus/params.h"
 #include "optional.h"
@@ -81,4 +81,4 @@ Optional<int> NextActivationHeight(
         int nHeight,
         const Consensus::Params& params);
 
-#endif // PIVX_CONSENSUS_UPGRADES_H
+#endif // KFX_CONSENSUS_UPGRADES_H

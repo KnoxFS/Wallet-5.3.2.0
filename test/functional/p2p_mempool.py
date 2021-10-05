@@ -8,12 +8,11 @@ Test that nodes are disconnected if they send mempool messages when bloom
 filters are not enabled.
 """
 
-from test_framework.messages import msg_mempool
-from test_framework.mininode import P2PInterface
-from test_framework.test_framework import PivxTestFramework
-from test_framework.util import assert_equal
+from test_framework.mininode import *
+from test_framework.test_framework import KnoxFSTestFramework
+from test_framework.util import *
 
-class P2PMempoolTests(PivxTestFramework):
+class P2PMempoolTests(KnoxFSTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
@@ -22,6 +21,7 @@ class P2PMempoolTests(PivxTestFramework):
     def run_test(self):
         # Add a p2p connection
         self.nodes[0].add_p2p_connection(P2PInterface())
+        network_thread_start()
         self.nodes[0].p2p.wait_for_verack()
 
         #request mempool

@@ -1,12 +1,13 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin developers
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_SCRIPT_STANDARD_H
 #define BITCOIN_SCRIPT_STANDARD_H
 
+#include "chainparams.h"
 #include "script/interpreter.h"
 #include "uint256.h"
 
@@ -65,7 +66,7 @@ public:
  *  * CNoDestination: no destination set
  *  * CKeyID: TX_PUBKEYHASH destination
  *  * CScriptID: TX_SCRIPTHASH destination
- *  A CTxDestination is the internal data type encoded in a PIVX address
+ *  A CTxDestination is the internal data type encoded in a KFX address
  */
 typedef boost::variant<CNoDestination, CKeyID, CScriptID> CTxDestination;
 
@@ -74,57 +75,15 @@ bool IsValidDestination(const CTxDestination& dest);
 
 const char* GetTxnOutputType(txnouttype t);
 
-/**
- * Parse a scriptPubKey and identify script type for standard scripts. If
- * successful, returns script type and parsed pubkeys or hashes, depending on
- * the type. For example, for a P2SH script, vSolutionsRet will contain the
- * script hash, for P2PKH it will contain the key hash, etc.
- *
- * @param[in]   scriptPubKey   Script to parse
- * @param[out]  typeRet        The script type
- * @param[out]  vSolutionsRet  Vector of parsed pubkeys and hashes
- * @return                     True if script matches standard template
- */
 bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::vector<unsigned char> >& vSolutionsRet);
-
-/**
- * Parse a standard scriptPubKey for the destination address. Assigns result to
- * the addressRet parameter and returns true if successful. For multisig
- * scripts, instead use ExtractDestinations. Currently only works for P2PK,
- * P2PKH, P2SH and P2CS scripts.
- */
+int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned char> >& vSolutions);
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet, bool fColdStake = false);
-
-/**
- * Parse a standard scriptPubKey with one or more destination addresses. For
- * multisig scripts, this populates the addressRet vector with the pubkey IDs
- * and nRequiredRet with the n required to spend.
- * For P2CS addressRet is populated with the staker and owner IDs and nRequiredRet
- * is set to 2.
- * For other destinations, addressRet is populated with a single value and
- * nRequiredRet is set to 1.
- * Returns true if successful.
- */
 bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<CTxDestination>& addressRet, int& nRequiredRet);
 
-/**
- * Generate a PIVX scriptPubKey for the given CTxDestination. Returns a P2PKH
- * script for a CKeyID destination, a P2SH script for a CScriptID, and an empty
- * script for CNoDestination.
- */
 CScript GetScriptForDestination(const CTxDestination& dest);
-
-/** Generate a P2PK script for the given pubkey. */
-CScript GetScriptForRawPubKey(const CPubKey& pubkey);
-
-/** Generate a multisig script. */
+CScript GetScriptForRawPubKey(const CPubKey& pubKey);
 CScript GetScriptForMultisig(int nRequired, const std::vector<CPubKey>& keys);
-
-/** Generate a P2CS script for the given staker and owner keys. */
 CScript GetScriptForStakeDelegation(const CKeyID& stakingKey, const CKeyID& spendingKey);
-CScript GetScriptForStakeDelegationLOF(const CKeyID& stakingKey, const CKeyID& spendingKey);
-
-/** Generate an OP_RETURN output script with the given data. */
 CScript GetScriptForOpReturn(const uint256& message);
 
 #endif // BITCOIN_SCRIPT_STANDARD_H

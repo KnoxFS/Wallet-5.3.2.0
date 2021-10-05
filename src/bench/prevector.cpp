@@ -22,7 +22,6 @@
 struct nontrivial_t {
     int x;
     nontrivial_t() :x(-1) {}
-    SERIALIZE_METHODS(nontrivial_t, obj) { READWRITE(obj.x); }
 };
 static_assert(!IS_TRIVIALLY_CONSTRUCTIBLE<nontrivial_t>::value,
               "expected nontrivial_t to not be trivially constructible");

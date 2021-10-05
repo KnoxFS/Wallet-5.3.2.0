@@ -1,5 +1,5 @@
 // Copyright (c) 2011-2015 The Bitcoin Core developers
-// Copyright (c) 2018-2020 The PIVX developers
+// Copyright (c) 2018-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -56,11 +56,11 @@ public:
 
         cachedBanlist.clear();
         cachedBanlist.reserve(banMap.size());
-        for (const auto& entry : banMap)
+        for (banmap_t::iterator it = banMap.begin(); it != banMap.end(); it++)
         {
             CCombinedBan banEntry;
-            banEntry.subnet = entry.first;
-            banEntry.banEntry = entry.second;
+            banEntry.subnet = (*it).first;
+            banEntry.banEntry = (*it).second;
             cachedBanlist.append(banEntry);
         }
 

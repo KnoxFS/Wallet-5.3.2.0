@@ -9,7 +9,7 @@
  * @copyright  Copyright 2013 Ian Miers, Christina Garman and Matthew Green
  * @license    This project is released under the MIT license.
  **/
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 
 #ifndef COMMITMENT_H_
 #define COMMITMENT_H_
@@ -54,7 +54,12 @@ private:
     CBigNum randomness;
     const CBigNum contents;
 
-    SERIALIZE_METHODS(Commitment, obj) { READWRITE(obj.commitmentValue, obj.randomness, obj.contents); }
+    ADD_SERIALIZE_METHODS;
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(commitmentValue); READWRITE(randomness); READWRITE(contents);
+    }
 };
 } /* namespace libzerocoin */
 #endif /* COMMITMENT_H_ */

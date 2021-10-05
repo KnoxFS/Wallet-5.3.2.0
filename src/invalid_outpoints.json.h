@@ -1,9 +1,9 @@
-// Copyright (c) 2018 The PIVX developers
+// Copyright (c) 2018 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_INVALID_OUTPOINTS_JSON_H
-#define PIVX_INVALID_OUTPOINTS_JSON_H
+#ifndef KFX_INVALID_OUTPOINTS_JSON_H
+#define KFX_INVALID_OUTPOINTS_JSON_H
 #include <string>
 
 std::string LoadInvalidOutPoints()
@@ -157,4 +157,4 @@ std::string LoadInvalidOutPoints()
     return str;
 }
 
-#endif //PIVX_INVALID_OUTPOINTS_JSON_H
+#endif //KFX_INVALID_OUTPOINTS_JSON_H

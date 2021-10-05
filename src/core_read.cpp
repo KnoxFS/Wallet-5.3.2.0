@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2014 The Bitcoin developers
-// Copyright (c) 2015-2019 The PIVX developers
+// Copyright (c) 2015-2019 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -10,7 +10,7 @@
 #include "script/script.h"
 #include "serialize.h"
 #include "streams.h"
-#include "util/system.h"
+#include "util.h"
 #include "utilstrencodings.h"
 #include "version.h"
 
@@ -122,15 +122,6 @@ uint256 ParseHashStr(const std::string& strHex, const std::string& strName)
     uint256 result;
     result.SetHex(strHex);
     return result;
-}
-
-bool ParseHashStr(const std::string& strReq, uint256& v)
-{
-    if (!IsHex(strReq) || (strReq.size() != 64))
-        return false;
-
-    v.SetHex(strReq);
-    return true;
 }
 
 std::vector<unsigned char> ParseHexUV(const UniValue& v, const std::string& strName)

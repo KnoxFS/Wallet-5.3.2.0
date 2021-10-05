@@ -1,5 +1,5 @@
 // Copyright (c) 2016-2020 The ZCash developers
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,9 +7,11 @@
 
 #include "script/script.h"
 #include "script/standard.h"
-#include "util/system.h"
+#include "util.h"
 #include "uint256.h"
 
+#include <openssl/aes.h>
+#include <openssl/evp.h>
 #include "wallet/wallet.h"
 
 bool CCryptoKeyStore::AddCryptedSaplingSpendingKey(

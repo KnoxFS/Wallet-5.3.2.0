@@ -1,9 +1,11 @@
 // Copyright (c) 2018-2020 The Bitcoin Core developers
-// Copyright (c) 2020 The PIVX Core developers
+// Copyright (c) 2020 The KFX Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
 #include <interfaces/handler.h>
+
+#include <util/memory.h>
 
 #include <boost/signals2/connection.hpp>
 #include <utility>
@@ -25,7 +27,7 @@ public:
 
 std::unique_ptr<Handler> MakeHandler(boost::signals2::connection connection)
 {
-    return std::make_unique<HandlerImpl>(std::move(connection));
+    return MakeUnique<HandlerImpl>(std::move(connection));
 }
 
 } // namespace interfaces

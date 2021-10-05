@@ -1,5 +1,5 @@
 // Copyright (c) 2011-2013 The Bitcoin developers
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
@@ -9,6 +9,8 @@
 #include "transactiontablemodel.h"
 
 #include <cstdlib>
+
+#include <QDateTime>
 
 // Earliest date that can be represented (far in the past)
 const QDateTime TransactionFilterProxy::MIN_DATE = QDateTime::fromTime_t(0);
@@ -40,7 +42,7 @@ bool TransactionFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& 
     if (fHideOrphans && isOrphan(status, type)) return false;
     if (!(bool)(TYPE(type) & typeFilter)) return false;
     if (fOnlyZc && !isZcTx(type)) return false;
-    if (fOnlyStakes && !isStakeTx(type)) return false;
+    if (fOnlyStakesandMN && !isStakeTx(type) && !isMasternodeRewardTx(type)) return false;
     if (fOnlyColdStaking && !isColdStake(type)) return false;
 
     bool involvesWatchAddress = index.data(TransactionTableModel::WatchonlyRole).toBool();
@@ -118,9 +120,9 @@ void TransactionFilterProxy::setHideOrphans(bool fHide)
     invalidateFilter();
 }
 
-void TransactionFilterProxy::setOnlyStakes(bool fOnlyStakes)
+void TransactionFilterProxy::setOnlyStakesandMN(bool fOnlyStakesandMN)
 {
-    this->fOnlyStakes = fOnlyStakes;
+    this->fOnlyStakesandMN = fOnlyStakesandMN;
     invalidateFilter();
 }
 
@@ -136,17 +138,22 @@ int TransactionFilterProxy::rowCount(const QModelIndex& parent) const
 bool TransactionFilterProxy::isOrphan(const int status, const int type)
 {
     return ( (type == TransactionRecord::Generated || type == TransactionRecord::StakeMint ||
-            type == TransactionRecord::StakeZPIV || type == TransactionRecord::MNReward)
+            type == TransactionRecord::StakeZKFX || type == TransactionRecord::MNReward)
             && (status == TransactionStatus::Conflicted || status == TransactionStatus::NotAccepted) );
 }
 
 bool TransactionFilterProxy::isZcTx(int type) const {
-    return (type == TransactionRecord::ZerocoinMint || type == TransactionRecord::ZerocoinSpend || type == TransactionRecord::ZerocoinSpend_Change_zPiv
+    return (type == TransactionRecord::ZerocoinMint || type == TransactionRecord::ZerocoinSpend || type == TransactionRecord::ZerocoinSpend_Change_zKnoxFS
             || type == TransactionRecord::ZerocoinSpend_FromMe || type == TransactionRecord::RecvFromZerocoinSpend);
 }
 
 bool TransactionFilterProxy::isStakeTx(int type) const {
-    return type == TransactionRecord::StakeMint || type == TransactionRecord::Generated || type == TransactionRecord::StakeZPIV || type == TransactionRecord::StakeDelegated;
+    //return type == TransactionRecord::StakeMint || type == TransactionRecord::Generated || type == TransactionRecord::StakeZKFX || type == TransactionRecord::StakeDelegated;
+   return type == TransactionRecord::StakeMint || type == TransactionRecord::Generated /*|| type == TransactionRecord::StakeZKFX*/ || type == TransactionRecord::StakeDelegated;
+}
+
+bool TransactionFilterProxy::isMasternodeRewardTx(int type) const {
+    return (type == TransactionRecord::MNReward);
 }
 
 bool TransactionFilterProxy::isColdStake(int type) const {

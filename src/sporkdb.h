@@ -1,9 +1,9 @@
-// Copyright (c) 2017-2019 The PIVX developers
+// Copyright (c) 2017-2019 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_CSPORKDB_H
-#define PIVX_CSPORKDB_H
+#ifndef KFX_CSPORKDB_H
+#define KFX_CSPORKDB_H
 
 #include "fs.h"
 #include "dbwrapper.h"
@@ -25,4 +25,4 @@ public:
 };
 
 
-#endif //PIVX_CSPORKDB_H
+#endif //KFX_CSPORKDB_H

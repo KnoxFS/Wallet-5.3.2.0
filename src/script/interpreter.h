@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin developers
-// Copyright (c) 2018-2019 The PIVX developers
+// Copyright (c) 2018-2019 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -107,7 +107,7 @@ public:
          return false;
     }
 
-    virtual bool CheckColdStake(bool fAllowLastOutputFree, const CScript& prevoutScript, std::vector<valtype>& stack, unsigned int flags, ScriptError* error) const
+    virtual bool CheckColdStake(const CScript& prevoutScript, std::vector<valtype>& stack, unsigned int flags, ScriptError* error) const
     {
          return false;
     }
@@ -132,7 +132,7 @@ public:
 
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override ;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
-    bool CheckColdStake(bool fAllowLastOutputFree, const CScript& prevoutScript, std::vector<valtype>& stack, unsigned int flags, ScriptError* serror) const override;
+    bool CheckColdStake(const CScript& prevoutScript, std::vector<valtype>& stack, unsigned int flags, ScriptError* error) const override;
 };
 
 class MutableTransactionSignatureChecker : public TransactionSignatureChecker

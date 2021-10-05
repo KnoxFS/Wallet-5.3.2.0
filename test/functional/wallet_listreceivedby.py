@@ -3,10 +3,9 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the listreceivedbyaddress RPC."""
-
 from decimal import Decimal
 
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KnoxFSTestFramework
 from test_framework.util import (
     assert_array_result,
     assert_equal,
@@ -14,7 +13,7 @@ from test_framework.util import (
 )
 
 
-class ReceivedByTest(PivxTestFramework):
+class ReceivedByTest(KnoxFSTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
 

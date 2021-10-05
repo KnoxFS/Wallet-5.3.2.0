@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020 The PIVX developers
+# Copyright (c) 2020 The KFX developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""
+
+'''
 Tests importprivkey and importaddress with staking keys/addresses.
 Node0 generates staking addresses and sends delegations to them.
 Node1 imports and rescans. The test checks that cold utxos and staking balance is updated.
-"""
+'''
 
-from test_framework.test_framework import PivxTestFramework
+from time import sleep
+
+from test_framework.test_framework import KnoxFSTestFramework
 from test_framework.util import (
     assert_equal,
     DecimalAmt,
 )
 
-class ImportStakingTest(PivxTestFramework):
+class ImportStakingTest(KnoxFSTestFramework):
 
     def set_test_params(self):
         self.num_nodes = 2
@@ -36,7 +39,7 @@ class ImportStakingTest(PivxTestFramework):
                              for i in range(2 * NUM_OF_DELEGATIONS)]
         delegations = []
         for i, sa in enumerate(staking_addresses):
-            # delegate 10 PIV
+            # delegate 10 KFX
             delegations.append(self.nodes[0].delegatestake(sa, 10)['txid'])
             # mine a block and check staking balance
             self.nodes[0].generate(1)

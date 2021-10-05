@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
@@ -26,19 +26,5 @@ inline OperationResult errorOut(const std::string& errorStr)
 {
     return OperationResult(false, errorStr);
 }
-
-
-template <class T>
-class CallResult : public OperationResult
-{
-private:
-    Optional<T> m_obj_res{nullopt};
-public:
-    CallResult() : OperationResult(false) {}
-    CallResult(T _obj) : OperationResult(true), m_obj_res(_obj) { }
-    CallResult(const std::string& error) : OperationResult(false, error) { }
-    const Optional<T>& getObjResult() const { return m_obj_res; }
-};
-
 
 #endif //OPERATIONRESULT_H

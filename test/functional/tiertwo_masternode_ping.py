@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020 The PIVX developers
+# Copyright (c) 2020 The KFX developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or https://www.opensource.org/licenses/mit-license.php.
-"""
-Test checking masternode ping thread
-Does not use functions of PivxTier2TestFramework as we don't want to send
-pings on demand. Here, instead, mocktime is disabled, and we just wait with
-time.sleep to verify that masternodes send pings correctly.
-"""
 
-import os
-import time
-
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KnoxFSTestFramework
 from test_framework.util import (
     assert_equal,
     assert_greater_than,
@@ -20,8 +11,17 @@ from test_framework.util import (
     p2p_port,
 )
 
+import os
+import time
 
-class MasternodePingTest(PivxTestFramework):
+"""
+Test checking masternode ping thread
+Does not use functions of KnoxFSTier2TestFramework as we don't want to send
+pings on demand. Here, instead, mocktime is disabled, and we just wait with
+time.sleep to verify that masternodes send pings correctly.
+"""
+
+class MasternodePingTest(KnoxFSTestFramework):
 
     def set_test_params(self):
         self.setup_clean_chain = True
@@ -43,12 +43,12 @@ class MasternodePingTest(PivxTestFramework):
         self.log.info("funding masternode controller...")
         masternodeAlias = "mnode"
         mnAddress = owner.getnewaddress(masternodeAlias)
-        collateralTxId = miner.sendtoaddress(mnAddress, Decimal('100'))
+        collateralTxId = miner.sendtoaddress(mnAddress, Decimal('10000'))
         miner.generate(2)
         self.sync_blocks()
         time.sleep(1)
         collateral_rawTx = owner.getrawtransaction(collateralTxId, 1)
-        assert_equal(owner.getbalance(), Decimal('100'))
+        assert_equal(owner.getbalance(), Decimal('10000'))
         assert_greater_than(collateral_rawTx["confirmations"], 0)
 
         # Block time can be up to median time past +1. We might need to wait...
@@ -67,7 +67,7 @@ class MasternodePingTest(PivxTestFramework):
         confData = masternodeAlias + " 127.0.0.1:" + str(p2p_port(2)) + " " + \
                    str(mnPrivkey) +  " " + str(collateralTxId) + " " + str(vout)
         destPath = os.path.join(self.options.tmpdir, "node1", "regtest", "masternode.conf")
-        with open(destPath, "a+", encoding="utf8") as file_object:
+        with open(destPath, "a+") as file_object:
             file_object.write("\n")
             file_object.write(confData)
 

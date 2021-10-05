@@ -1,6 +1,6 @@
 // Copyright (c) 2011-2014 The Bitcoin developers
 // Copyright (c) 2014-2016 The Dash developers
-// Copyright (c) 2016-2020 The PIVX developers
+// Copyright (c) 2016-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -76,7 +76,7 @@ public:
         Other,
         Generated,
         StakeMint,
-        StakeZPIV,
+        StakeZKFX,
         SendToAddress,
         SendToOther,
         RecvWithAddress,
@@ -86,7 +86,7 @@ public:
         ZerocoinMint,
         ZerocoinSpend,
         RecvFromZerocoinSpend,
-        ZerocoinSpend_Change_zPiv,
+        ZerocoinSpend_Change_zKnoxFS,
         ZerocoinSpend_FromMe,
         StakeDelegated, // Received cold stake (owner)
         StakeHot, // Staked via a delegated P2CS.
@@ -100,7 +100,7 @@ public:
         SendToSelfShieldedAddress, // Shielded send to self
         SendToSelfShieldToTransparent, // Unshield coins to self
         SendToSelfShieldToShieldChangeAddress, // Changing coins from one shielded address to another inside the wallet.
-        SendToNobody // Burned PIVs, op_return output.
+        SendToNobody // Burned KFXs, op_return output.
     };
 
     /** Number of confirmation recommended for accepting a transaction */
@@ -200,6 +200,10 @@ public:
     /** Return true if the tx is a any cold staking type tx.
      */
     bool isAnyColdStakingType() const;
+
+    /** Return true if the tx is a masternode reward
+     */
+    bool isMasternodeReward() const;
 
     /** Return true if the tx hash is null and/or if the size is 0
      */

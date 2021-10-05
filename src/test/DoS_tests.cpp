@@ -1,5 +1,5 @@
 // Copyright (c) 2011-2014 The Bitcoin Core developers
-// Copyright (c) 2019 The PIVX developers
+// Copyright (c) 2019 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,17 +7,15 @@
 // Unit tests for denial-of-service detection/prevention code
 //
 
-#include "test/test_pivx.h"
+#include "test/test_knoxfs.h"
 
-#include "arith_uint256.h"
 #include "keystore.h"
 #include "net_processing.h"
 #include "net.h"
-#include "pubkey.h"
 #include "pow.h"
 #include "script/sign.h"
 #include "serialize.h"
-#include "util/system.h"
+#include "util.h"
 #include "validation.h"
 
 #include <stdint.h>
@@ -31,10 +29,9 @@ extern unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans);
 struct COrphanTx {
     CTransactionRef tx;
     NodeId fromPeer;
-    int64_t nTimeExpire;
 };
-extern RecursiveMutex g_cs_orphans;
-extern std::map<uint256, COrphanTx> mapOrphanTransactions GUARDED_BY(g_cs_orphans);
+extern std::map<uint256, COrphanTx> mapOrphanTransactions;
+extern std::map<uint256, std::set<uint256> > mapOrphanTransactionsByPrev;
 
 CService ip(uint32_t i)
 {
@@ -60,35 +57,26 @@ BOOST_AUTO_TEST_CASE(DoS_banning)
     CAddress addr1(ip(0xa0b0c001), NODE_NONE);
     CNode dummyNode1(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr1, 0, 0, "", true);
     dummyNode1.SetSendVersion(PROTOCOL_VERSION);
-    peerLogic->InitializeNode(&dummyNode1);
+    GetNodeSignals().InitializeNode(&dummyNode1, *connman);
     dummyNode1.nVersion = 1;
     dummyNode1.fSuccessfullyConnected = true;
     misbehave(dummyNode1.GetId(), 100); // Should get banned
-    {
-        LOCK2(cs_main, dummyNode1.cs_sendProcessing);
-        peerLogic->SendMessages(&dummyNode1, interruptDummy);
-    }
+    SendMessages(&dummyNode1, *connman, interruptDummy);
     BOOST_CHECK(connman->IsBanned(addr1));
     BOOST_CHECK(!connman->IsBanned(ip(0xa0b0c001|0x0000ff00))); // Different IP, not banned
 
     CAddress addr2(ip(0xa0b0c002), NODE_NONE);
     CNode dummyNode2(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr2, 1, 1, "", true);
     dummyNode2.SetSendVersion(PROTOCOL_VERSION);
-    peerLogic->InitializeNode(&dummyNode2);
+    GetNodeSignals().InitializeNode(&dummyNode2, *connman);
     dummyNode2.nVersion = 1;
     dummyNode2.fSuccessfullyConnected = true;
     misbehave(dummyNode2.GetId(), 50);
-    {
-        LOCK2(cs_main, dummyNode2.cs_sendProcessing);
-        peerLogic->SendMessages(&dummyNode2, interruptDummy);
-    }
+    SendMessages(&dummyNode2, *connman, interruptDummy);
     BOOST_CHECK(!connman->IsBanned(addr2)); // 2 not banned yet...
     BOOST_CHECK(connman->IsBanned(addr1));  // ... but 1 still should be
     misbehave(dummyNode2.GetId(), 50);
-    {
-        LOCK2(cs_main, dummyNode2.cs_sendProcessing);
-        peerLogic->SendMessages(&dummyNode2, interruptDummy);
-    }
+    SendMessages(&dummyNode2, *connman, interruptDummy);
     BOOST_CHECK(connman->IsBanned(addr2));
 }
 
@@ -101,26 +89,17 @@ BOOST_AUTO_TEST_CASE(DoS_banscore)
     CAddress addr1(ip(0xa0b0c001), NODE_NONE);
     CNode dummyNode1(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr1, 3, 1, "", true);
     dummyNode1.SetSendVersion(PROTOCOL_VERSION);
-    peerLogic->InitializeNode(&dummyNode1);
+    GetNodeSignals().InitializeNode(&dummyNode1, *connman);
     dummyNode1.nVersion = 1;
     dummyNode1.fSuccessfullyConnected = true;
     misbehave(dummyNode1.GetId(), 100);
-    {
-        LOCK2(cs_main, dummyNode1.cs_sendProcessing);
-        peerLogic->SendMessages(&dummyNode1, interruptDummy);
-    }
+    SendMessages(&dummyNode1, *connman, interruptDummy);
     BOOST_CHECK(!connman->IsBanned(addr1));
     misbehave(dummyNode1.GetId(), 10);
-    {
-        LOCK2(cs_main, dummyNode1.cs_sendProcessing);
-        peerLogic->SendMessages(&dummyNode1, interruptDummy);
-    }
+    SendMessages(&dummyNode1, *connman, interruptDummy);
     BOOST_CHECK(!connman->IsBanned(addr1));
     misbehave(dummyNode1.GetId(), 1);
-    {
-        LOCK2(cs_main, dummyNode1.cs_sendProcessing);
-        peerLogic->SendMessages(&dummyNode1, interruptDummy);
-    }
+    SendMessages(&dummyNode1, *connman, interruptDummy);
     BOOST_CHECK(connman->IsBanned(addr1));
     gArgs.ForceSetArg("-banscore", std::to_string(DEFAULT_BANSCORE_THRESHOLD));
 }
@@ -136,15 +115,12 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
     CAddress addr(ip(0xa0b0c001), NODE_NONE);
     CNode dummyNode(id++, NODE_NETWORK, 0, INVALID_SOCKET, addr, 4, 4, "", true);
     dummyNode.SetSendVersion(PROTOCOL_VERSION);
-    peerLogic->InitializeNode(&dummyNode);
+    GetNodeSignals().InitializeNode(&dummyNode, *connman);
     dummyNode.nVersion = 1;
     dummyNode.fSuccessfullyConnected = true;
 
     misbehave(dummyNode.GetId(), 100);
-    {
-        LOCK2(cs_main, dummyNode.cs_sendProcessing);
-        peerLogic->SendMessages(&dummyNode, interruptDummy);
-    }
+    SendMessages(&dummyNode, *connman, interruptDummy);
     BOOST_CHECK(connman->IsBanned(addr));
 
     SetMockTime(nStartTime+60*60);
@@ -157,33 +133,16 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
 CTransactionRef RandomOrphan()
 {
     std::map<uint256, COrphanTx>::iterator it;
-    LOCK2(cs_main, g_cs_orphans);
     it = mapOrphanTransactions.lower_bound(InsecureRand256());
     if (it == mapOrphanTransactions.end())
         it = mapOrphanTransactions.begin();
     return it->second.tx;
 }
 
-static void MakeNewKeyWithFastRandomContext(CKey& key)
-{
-    std::vector<unsigned char> keydata;
-    keydata = insecure_rand_ctx.randbytes(32);
-    key.Set(keydata.data(), keydata.data() + keydata.size(), /*fCompressedIn*/ true);
-    assert(key.IsValid());
-}
-
 BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
 {
-    // This test had non-deterministic coverage due to
-    // randomly selected seeds.
-    // This seed is chosen so that all branches of the function
-    // ecdsa_signature_parse_der_lax are executed during this test.
-    // Specifically branches that run only when an ECDSA
-    // signature's R and S values have leading zeros.
-    insecure_rand_ctx = FastRandomContext(ArithToUint256(arith_uint256(33)));
-
     CKey key;
-    MakeNewKeyWithFastRandomContext(key);
+    key.MakeNewKey(true);
     CBasicKeyStore keystore;
     keystore.AddKey(key);
 
@@ -228,7 +187,7 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         tx.vout.resize(1);
         tx.vout[0].nValue = 1*CENT;
         tx.vout[0].scriptPubKey = GetScriptForDestination(key.GetPubKey().GetID());
-        tx.vin.resize(2777);
+        tx.vin.resize(500);
         for (unsigned int j = 0; j < tx.vin.size(); j++)
         {
             tx.vin[j].prevout.n = j;
@@ -243,7 +202,6 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
         BOOST_CHECK(!AddOrphanTx(MakeTransactionRef(tx), i));
     }
 
-    LOCK2(cs_main, g_cs_orphans);
     // Test EraseOrphansFor:
     for (NodeId i = 0; i < 3; i++)
     {
@@ -259,6 +217,7 @@ BOOST_AUTO_TEST_CASE(DoS_mapOrphans)
     BOOST_CHECK(mapOrphanTransactions.size() <= 10);
     LimitOrphanTxSize(0);
     BOOST_CHECK(mapOrphanTransactions.empty());
+    BOOST_CHECK(mapOrphanTransactionsByPrev.empty());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2014 The Bitcoin developers
-// Copyright (c) 2017-2020 The PIVX developers
+// Copyright (c) 2017-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
@@ -86,6 +86,9 @@ static bool MatchMultisig(const CScript& script, unsigned int& required, std::ve
     return (it + 1 == script.end());
 }
 
+/**
+ * Return public keys or hashes from scriptPubKey, for 'standard' transaction types.
+ */
 bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::vector<unsigned char> >& vSolutionsRet)
 {
     if (scriptPubKey.empty())
@@ -147,6 +150,29 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
     vSolutionsRet.clear();
     typeRet = TX_NONSTANDARD;
     return false;
+}
+
+int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned char> >& vSolutions)
+{
+    switch (t)
+    {
+    case TX_NONSTANDARD:
+    case TX_NULL_DATA:
+        return -1;
+    case TX_PUBKEY:
+        return 1;
+    case TX_PUBKEYHASH:
+        return 2;
+    case TX_COLDSTAKE:
+        return 3;
+    case TX_MULTISIG:
+        if (vSolutions.size() < 1 || vSolutions[0].size() < 1)
+            return -1;
+        return vSolutions[0][0] + 1;
+    case TX_SCRIPTHASH:
+        return 1; // doesn't include args needed by the script
+    }
+    return -1;
 }
 
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet, bool fColdStake)
@@ -274,16 +300,6 @@ CScript GetScriptForStakeDelegation(const CKeyID& stakingKey, const CKeyID& spen
     CScript script;
     script << OP_DUP << OP_HASH160 << OP_ROT <<
             OP_IF << OP_CHECKCOLDSTAKEVERIFY << ToByteVector(stakingKey) <<
-            OP_ELSE << ToByteVector(spendingKey) << OP_ENDIF <<
-            OP_EQUALVERIFY << OP_CHECKSIG;
-    return script;
-}
-
-CScript GetScriptForStakeDelegationLOF(const CKeyID& stakingKey, const CKeyID& spendingKey)
-{
-    CScript script;
-    script << OP_DUP << OP_HASH160 << OP_ROT <<
-            OP_IF << OP_CHECKCOLDSTAKEVERIFY_LOF << ToByteVector(stakingKey) <<
             OP_ELSE << ToByteVector(spendingKey) << OP_ENDIF <<
             OP_EQUALVERIFY << OP_CHECKSIG;
     return script;

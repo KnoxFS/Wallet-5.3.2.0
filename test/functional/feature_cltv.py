@@ -8,14 +8,12 @@ Test that the CHECKLOCKTIMEVERIFY soft-fork activates at (regtest) block height
 1351.
 """
 
-from io import BytesIO
-
+from test_framework.test_framework import KnoxFSTestFramework
+from test_framework.util import *
+from test_framework.mininode import *
 from test_framework.blocktools import create_coinbase, create_block
-from test_framework.messages import CTransaction, msg_block, ToHex
-from test_framework.mininode import mininode_lock, P2PInterface
 from test_framework.script import CScript, OP_1NEGATE, OP_CHECKLOCKTIMEVERIFY, OP_DROP, CScriptNum
-from test_framework.test_framework import PivxTestFramework
-from test_framework.util import assert_equal, hex_str_to_bytes, wait_until
+from io import BytesIO
 
 CLTV_HEIGHT = 750
 
@@ -61,7 +59,7 @@ def create_transaction(node, coinbase, to_address, amount):
     tx.deserialize(BytesIO(hex_str_to_bytes(signresult['hex'])))
     return tx
 
-class BIP65Test(PivxTestFramework):
+class BIP65Test(KnoxFSTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1']]
@@ -69,6 +67,10 @@ class BIP65Test(PivxTestFramework):
 
     def run_test(self):
         self.nodes[0].add_p2p_connection(P2PInterface())
+
+        network_thread_start()
+
+        # wait_for_verack ensures that the P2P connection is fully up.
         self.nodes[0].p2p.wait_for_verack()
 
         self.log.info("Mining %d blocks", CLTV_HEIGHT - 2)

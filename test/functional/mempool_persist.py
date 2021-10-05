@@ -4,7 +4,7 @@
 # file COPYING or https://www.opensource.org/licenses/mit-license.php.
 """Test mempool persistence.
 
-By default, pivxd will dump mempool on shutdown and
+By default, bitcoind will dump mempool on shutdown and
 then reload it on startup. This can be overridden with
 the -persistmempool=false command line option.
 
@@ -28,16 +28,19 @@ Test is as follows:
   - Restart node0 with -persistmempool=true. Verify that it has 5
     transactions in its mempool. This tests that -persistmempool=false
     does not overwrite a previously valid mempool stored on disk.
+
 """
 
 from decimal import Decimal
+import os
 
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KnoxFSTestFramework
 from test_framework.util import (
-    assert_equal
+    assert_equal,
+    wait_until,
 )
 
-class MempoolPersistTest(PivxTestFramework):
+class MempoolPersistTest(KnoxFSTestFramework):
     def set_test_params(self):
         self.num_nodes = 3
         self.extra_args = [[], ["-persistmempool=0"], []]
@@ -106,7 +109,7 @@ class MempoolPersistTest(PivxTestFramework):
         assert self.nodes[0].getmempoolinfo()["loaded"]
         assert_equal(len(self.nodes[1].getrawmempool()), 5)
 
-        self.log.debug("Prevent pivxd from writing mempool.dat to disk. Verify that `savemempool` fails")
+        self.log.debug("Prevent bitcoind from writing mempool.dat to disk. Verify that `savemempool` fails")
         # to test the exception we are creating a tmp folder called mempool.dat.new
         # which is an implementation detail that could change and break this test
         mempooldotnew1 = mempooldat1 + '.new'

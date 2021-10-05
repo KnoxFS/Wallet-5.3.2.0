@@ -1,5 +1,5 @@
 // Copyright (c) 2011-2013 The Bitcoin developers
-// Copyright (c) 2019 The PIVX developers
+// Copyright (c) 2019 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -30,8 +30,8 @@ class TransactionTableModel : public QAbstractTableModel
     Q_OBJECT
 
 public:
-    explicit TransactionTableModel(CWallet* wallet, WalletModel* parent = nullptr);
-    ~TransactionTableModel() override;
+    explicit TransactionTableModel(CWallet* wallet, WalletModel* parent = 0);
+    ~TransactionTableModel();
 
     enum ColumnIndex {
         Status = 0,
@@ -74,16 +74,18 @@ public:
         SizeRole
     };
 
-    int rowCount(const QModelIndex& parent) const override;
-    int columnCount(const QModelIndex& parent) const override;
+    int rowCount(const QModelIndex& parent) const;
+    int columnCount(const QModelIndex& parent) const;
     int size() const;
-    QVariant data(const QModelIndex& index, int role) const override;
-    QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
-    QModelIndex index(int row, int column, const QModelIndex& parent = QModelIndex()) const override;
-    bool processingQueuedTransactions() const { return fProcessingQueuedTransactions; }
+    bool hasZcTxes();
+    QVariant data(const QModelIndex& index, int role) const;
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const;
+    QModelIndex index(int row, int column, const QModelIndex& parent = QModelIndex()) const;
+    bool processingQueuedTransactions() { return fProcessingQueuedTransactions; }
 
 Q_SIGNALS:
-    void txArrived(const QString& hash, const bool isCoinStake, const bool isCSAnyType);
+    //void txArrived(const QString& hash, const bool& isCoinStake, const bool& isCSAnyType);
+    void txArrived(const QString& hash, const bool& isCoinStake, const bool& isCSAnyType, const bool& isMasternodeReward);
 
 private:
     // Listeners

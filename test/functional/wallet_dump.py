@@ -6,7 +6,7 @@
 
 import os
 
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KnoxFSTestFramework
 from test_framework.util import (assert_equal, assert_raises_rpc_error)
 
 
@@ -68,7 +68,7 @@ def read_dump(file_name, addrs, hd_master_addr_old):
         return found_addr, found_addr_chg, found_addr_rsv, hd_master_addr_ret
 
 
-class WalletDumpTest(PivxTestFramework):
+class WalletDumpTest(KnoxFSTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.extra_args = [["-keypool=90"]]
@@ -79,7 +79,7 @@ class WalletDumpTest(PivxTestFramework):
         # longer than the default 30 seconds due to an expensive
         # CWallet::TopUpKeyPool call, and the encryptwallet RPC made later in
         # the test often takes even longer.
-        self.add_nodes(self.num_nodes, extra_args=self.extra_args)
+        self.add_nodes(self.num_nodes, self.extra_args)
         self.start_nodes()
 
     def run_test (self):

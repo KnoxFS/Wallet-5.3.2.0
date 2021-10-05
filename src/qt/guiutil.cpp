@@ -1,6 +1,6 @@
 // Copyright (c) 2011-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -17,7 +17,7 @@
 #include "protocol.h"
 #include "script/script.h"
 #include "script/standard.h"
-#include "util/system.h"
+#include "util.h"
 
 #ifdef WIN32
 #ifdef _WIN32_WINNT
@@ -56,10 +56,24 @@
 #include <QUrlQuery>
 #include <QMouseEvent>
 
-#define URI_SCHEME "pivx"
 
 #if defined(Q_OS_MAC)
+extern double NSAppKitVersionNumber;
+#if !defined(NSAppKitVersionNumber10_8)
+#define NSAppKitVersionNumber10_8 1187
+#endif
+#if !defined(NSAppKitVersionNumber10_9)
+#define NSAppKitVersionNumber10_9 1265
+#endif
+#endif
 
+#define URI_SCHEME "knoxfs"
+
+#if defined(Q_OS_MAC)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
+#include <CoreServices/CoreServices.h>
 #include <QProcess>
 
 void ForceActivation();
@@ -107,14 +121,14 @@ CAmount parseValue(const QString& text, int displayUnit, bool* valid_out)
     return valid ? val : 0;
 }
 
-QString formatBalance(CAmount amount, int nDisplayUnit, bool isZpiv)
+QString formatBalance(CAmount amount, int nDisplayUnit, bool isZknoxfs)
 {
-    return (amount == 0) ? ("0.00 " + BitcoinUnits::name(nDisplayUnit, isZpiv)) : BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, amount, false, BitcoinUnits::separatorAlways, true, isZpiv);
+    return (amount == 0) ? ("0.00 " + BitcoinUnits::name(nDisplayUnit, isZknoxfs)) : BitcoinUnits::floorHtmlWithUnit(nDisplayUnit, amount, false, BitcoinUnits::separatorAlways, true, isZknoxfs);
 }
 
-QString formatBalanceWithoutHtml(CAmount amount, int nDisplayUnit, bool isZpiv)
+QString formatBalanceWithoutHtml(CAmount amount, int nDisplayUnit, bool isZknoxfs)
 {
-    return (amount == 0) ? ("0.00 " + BitcoinUnits::name(nDisplayUnit, isZpiv)) : BitcoinUnits::floorWithUnit(nDisplayUnit, amount, false, BitcoinUnits::separatorAlways, true, isZpiv);
+    return (amount == 0) ? ("0.00 " + BitcoinUnits::name(nDisplayUnit, isZknoxfs)) : BitcoinUnits::floorWithUnit(nDisplayUnit, amount, false, BitcoinUnits::separatorAlways, true, isZknoxfs);
 }
 
 void setupAddressWidget(QValidatedLineEdit* widget, QWidget* parent)
@@ -124,7 +138,7 @@ void setupAddressWidget(QValidatedLineEdit* widget, QWidget* parent)
     widget->setFont(bitcoinAddressFont());
     // We don't want translators to use own addresses in translations
     // and this is the only place, where this address is supplied.
-    widget->setPlaceholderText(QObject::tr("Enter PIVX address (e.g. %1)").arg("D7VFR83SQbiezrW72hjcWJtcfip5krte2Z"));
+    widget->setPlaceholderText(QObject::tr("Enter KFX address (e.g. %1)").arg("D7VFR83SQbiezrW72hjcWJtcfip5krte2Z"));
     widget->setValidator(new BitcoinAddressEntryValidator(parent));
     widget->setCheckValidator(new BitcoinAddressCheckValidator(parent));
 }
@@ -146,7 +160,7 @@ void updateWidgetTextAndCursorPosition(QLineEdit* widget, const QString& str)
 
 bool parseBitcoinURI(const QUrl& uri, SendCoinsRecipient* out)
 {
-    // return if URI is not valid or is no PIVX: URI
+    // return if URI is not valid or is no KFX: URI
     if (!uri.isValid() || uri.scheme() != QString(URI_SCHEME))
         return false;
 
@@ -177,7 +191,7 @@ bool parseBitcoinURI(const QUrl& uri, SendCoinsRecipient* out)
             fShouldReturnFalse = false;
         } else if (i->first == "amount") {
             if (!i->second.isEmpty()) {
-                if (!BitcoinUnits::parse(BitcoinUnits::PIV, i->second, &rv.amount)) {
+                if (!BitcoinUnits::parse(BitcoinUnits::KFX, i->second, &rv.amount)) {
                     return false;
                 }
             }
@@ -195,9 +209,9 @@ bool parseBitcoinURI(const QUrl& uri, SendCoinsRecipient* out)
 
 bool parseBitcoinURI(QString uri, SendCoinsRecipient* out)
 {
-    // Convert pivx:// to pivx:
+    // Convert knoxfs:// to knoxfs:
     //
-    //    Cannot handle this later, because pivx:// will cause Qt to see the part after // as host,
+    //    Cannot handle this later, because knoxfs:// will cause Qt to see the part after // as host,
     //    which will lower-case it (and thus invalidate the address).
     if (uri.startsWith(URI_SCHEME "://", Qt::CaseInsensitive)) {
         uri.replace(0, std::strlen(URI_SCHEME) + 3, URI_SCHEME ":");
@@ -212,7 +226,7 @@ QString formatBitcoinURI(const SendCoinsRecipient& info)
     int paramCount = 0;
 
     if (info.amount) {
-        ret += QString("?amount=%1").arg(BitcoinUnits::format(BitcoinUnits::PIV, info.amount, false, BitcoinUnits::separatorNever));
+        ret += QString("?amount=%1").arg(BitcoinUnits::format(BitcoinUnits::KFX, info.amount, false, BitcoinUnits::separatorNever));
         paramCount++;
     }
 
@@ -236,7 +250,7 @@ bool isDust(const QString& address, const CAmount& amount)
     CTxDestination dest = DecodeDestination(address.toStdString());
     CScript script = GetScriptForDestination(dest);
     CTxOut txOut(amount, script);
-    return IsDust(txOut, dustRelayFee);
+    return IsDust(txOut, ::minRelayTxFee);
 }
 
 QString HtmlEscape(const QString& str, bool fMultiLine)
@@ -359,7 +373,7 @@ bool checkPoint(const QPoint& p, const QWidget* w)
 {
     QWidget* atW = QApplication::widgetAt(w->mapToGlobal(p));
     if (!atW) return false;
-    return atW->window() == w;
+    return atW->topLevelWidget() == w;
 }
 
 bool isObscured(QWidget* w)
@@ -408,7 +422,7 @@ bool openDebugLogfile()
 
 bool openConfigfile()
 {
-    return openFile(GetConfigFile(gArgs.GetArg("-conf", PIVX_CONF_FILENAME)), true);
+    return openFile(GetConfigFile(), true);
 }
 
 bool openMNConfigfile()
@@ -419,6 +433,40 @@ bool openMNConfigfile()
 bool showBackups()
 {
     return openFile(GetDataDir() / "backups", false);
+}
+
+void SubstituteFonts(const QString& language)
+{
+#if defined(Q_OS_MAC)
+// Background:
+// OSX's default font changed in 10.9 and QT is unable to find it with its
+// usual fallback methods when building against the 10.7 sdk or lower.
+// The 10.8 SDK added a function to let it find the correct fallback font.
+// If this fallback is not properly loaded, some characters may fail to
+// render correctly.
+//
+// The same thing happened with 10.10. .Helvetica Neue DeskInterface is now default.
+//
+// Solution: If building with the 10.7 SDK or lower and the user's platform
+// is 10.9 or higher at runtime, substitute the correct font. This needs to
+// happen before the QApplication is created.
+#if defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_X_VERSION_10_8
+    if (floor(NSAppKitVersionNumber) > NSAppKitVersionNumber10_8) {
+        if (floor(NSAppKitVersionNumber) <= NSAppKitVersionNumber10_9)
+            /* On a 10.9 - 10.9.x system */
+            QFont::insertSubstitution(".Lucida Grande UI", "Lucida Grande");
+        else {
+            /* 10.10 or later system */
+            if (language == "zh_CN" || language == "zh_TW" || language == "zh_HK") // traditional or simplified Chinese
+                QFont::insertSubstitution(".Helvetica Neue DeskInterface", "Heiti SC");
+            else if (language == "ja") // Japanesee
+                QFont::insertSubstitution(".Helvetica Neue DeskInterface", "Songti SC");
+            else
+                QFont::insertSubstitution(".Helvetica Neue DeskInterface", "Lucida Grande");
+        }
+    }
+#endif
+#endif
 }
 
 ToolTipToRichTextFilter::ToolTipToRichTextFilter(int size_threshold, QObject* parent) : QObject(parent),
@@ -445,21 +493,154 @@ bool ToolTipToRichTextFilter::eventFilter(QObject* obj, QEvent* evt)
     return QObject::eventFilter(obj, evt);
 }
 
+void TableViewLastColumnResizingFixer::connectViewHeadersSignals()
+{
+    connect(tableView->horizontalHeader(), &QHeaderView::sectionResized, this, &TableViewLastColumnResizingFixer::on_sectionResized);
+    connect(tableView->horizontalHeader(), &QHeaderView::geometriesChanged, this, &TableViewLastColumnResizingFixer::on_geometriesChanged);
+}
+
+// We need to disconnect these while handling the resize events, otherwise we can enter infinite loops.
+void TableViewLastColumnResizingFixer::disconnectViewHeadersSignals()
+{
+    disconnect(tableView->horizontalHeader(), &QHeaderView::sectionResized, this, &TableViewLastColumnResizingFixer::on_sectionResized);
+    disconnect(tableView->horizontalHeader(), &QHeaderView::geometriesChanged, this, &TableViewLastColumnResizingFixer::on_geometriesChanged);
+}
+
+// Setup the resize mode, handles compatibility for Qt5 and below as the method signatures changed.
+// Refactored here for readability.
+void TableViewLastColumnResizingFixer::setViewHeaderResizeMode(int logicalIndex, QHeaderView::ResizeMode resizeMode)
+{
+    tableView->horizontalHeader()->setSectionResizeMode(logicalIndex, resizeMode);
+}
+
+void TableViewLastColumnResizingFixer::resizeColumn(int nColumnIndex, int width)
+{
+    tableView->setColumnWidth(nColumnIndex, width);
+    tableView->horizontalHeader()->resizeSection(nColumnIndex, width);
+}
+
+int TableViewLastColumnResizingFixer::getColumnsWidth()
+{
+    int nColumnsWidthSum = 0;
+    for (int i = 0; i < columnCount; i++) {
+        nColumnsWidthSum += tableView->horizontalHeader()->sectionSize(i);
+    }
+    return nColumnsWidthSum;
+}
+
+int TableViewLastColumnResizingFixer::getAvailableWidthForColumn(int column)
+{
+    int nResult = lastColumnMinimumWidth;
+    int nTableWidth = tableView->horizontalHeader()->width();
+
+    if (nTableWidth > 0) {
+        int nOtherColsWidth = getColumnsWidth() - tableView->horizontalHeader()->sectionSize(column);
+        nResult = std::max(nResult, nTableWidth - nOtherColsWidth);
+    }
+
+    return nResult;
+}
+
+// Make sure we don't make the columns wider than the tables viewport width.
+void TableViewLastColumnResizingFixer::adjustTableColumnsWidth()
+{
+    disconnectViewHeadersSignals();
+    resizeColumn(lastColumnIndex, getAvailableWidthForColumn(lastColumnIndex));
+    connectViewHeadersSignals();
+
+    int nTableWidth = tableView->horizontalHeader()->width();
+    int nColsWidth = getColumnsWidth();
+    if (nColsWidth > nTableWidth) {
+        resizeColumn(secondToLastColumnIndex, getAvailableWidthForColumn(secondToLastColumnIndex));
+    }
+}
+
+// Make column use all the space available, useful during window resizing.
+void TableViewLastColumnResizingFixer::stretchColumnWidth(int column)
+{
+    disconnectViewHeadersSignals();
+    resizeColumn(column, getAvailableWidthForColumn(column));
+    connectViewHeadersSignals();
+}
+
+// When a section is resized this is a slot-proxy for ajustAmountColumnWidth().
+void TableViewLastColumnResizingFixer::on_sectionResized(int logicalIndex, int oldSize, int newSize)
+{
+    adjustTableColumnsWidth();
+    int remainingWidth = getAvailableWidthForColumn(logicalIndex);
+    if (newSize > remainingWidth) {
+        resizeColumn(logicalIndex, remainingWidth);
+    }
+}
+
+// When the tabless geometry is ready, we manually perform the stretch of the "Message" column,
+// as the "Stretch" resize mode does not allow for interactive resizing.
+void TableViewLastColumnResizingFixer::on_geometriesChanged()
+{
+    if ((getColumnsWidth() - this->tableView->horizontalHeader()->width()) != 0) {
+        disconnectViewHeadersSignals();
+        resizeColumn(secondToLastColumnIndex, getAvailableWidthForColumn(secondToLastColumnIndex));
+        connectViewHeadersSignals();
+    }
+}
+
+/**
+ * Initializes all internal variables and prepares the
+ * the resize modes of the last 2 columns of the table and
+ */
+TableViewLastColumnResizingFixer::TableViewLastColumnResizingFixer(QTableView* table, int lastColMinimumWidth, int allColsMinimumWidth) : tableView(table),
+                                                                                                                                          lastColumnMinimumWidth(lastColMinimumWidth),
+                                                                                                                                          allColumnsMinimumWidth(allColsMinimumWidth)
+{
+    columnCount = tableView->horizontalHeader()->count();
+    lastColumnIndex = columnCount - 1;
+    secondToLastColumnIndex = columnCount - 2;
+    tableView->horizontalHeader()->setMinimumSectionSize(allColumnsMinimumWidth);
+    setViewHeaderResizeMode(secondToLastColumnIndex, QHeaderView::Interactive);
+    setViewHeaderResizeMode(lastColumnIndex, QHeaderView::Interactive);
+}
+
+/**
+ * Class constructor.
+ * @param[in] seconds   Number of seconds to convert to a DHMS string
+ */
+DHMSTableWidgetItem::DHMSTableWidgetItem(const int64_t seconds) : QTableWidgetItem(),
+                                                                  value(seconds)
+{
+    this->setText(QString::fromStdString(DurationToDHMS(seconds)));
+}
+
+/**
+ * Comparator overload to ensure that the "DHMS"-type durations as used in
+ * the "active-since" list in the masternode tab are sorted by the elapsed
+ * duration (versus the string value being sorted).
+ * @param[in] item      Right hand side of the less than operator
+ */
+bool DHMSTableWidgetItem::operator<(QTableWidgetItem const& item) const
+{
+    DHMSTableWidgetItem const* rhs =
+        dynamic_cast<DHMSTableWidgetItem const*>(&item);
+
+    if (!rhs)
+        return QTableWidgetItem::operator<(item);
+
+    return value < rhs->value;
+}
+
 #ifdef WIN32
 fs::path static StartupShortcutPath()
 {
-    std::string chain = gArgs.GetChainName();
-    if (chain == CBaseChainParams::TESTNET)
-        return GetSpecialFolderPath(CSIDL_STARTUP) / "PIVX (testnet).lnk";
-    else if (chain == CBaseChainParams::REGTEST)
-        return GetSpecialFolderPath(CSIDL_STARTUP) / "PIVX (regtest).lnk";
+    if (gArgs.GetBoolArg("-testnet", false))
+        return GetSpecialFolderPath(CSIDL_STARTUP) / "KFX (testnet).lnk";
+    else if (gArgs.GetBoolArg("-regtest", false))
+        return GetSpecialFolderPath(CSIDL_STARTUP) / "KFX (regtest).lnk";
 
-    return GetSpecialFolderPath(CSIDL_STARTUP) / "PIVX.lnk";
+    return GetSpecialFolderPath(CSIDL_STARTUP) / "KFX.lnk";
 }
 
 bool GetStartOnSystemStartup()
 {
-    // check for PIVX*.lnk
+    // check for KFX*.lnk
     return fs::exists(StartupShortcutPath());
 }
 
@@ -530,12 +711,12 @@ fs::path static GetAutostartDir()
 
 fs::path static GetAutostartFilePath()
 {
-    return GetAutostartDir() / "pivx.desktop";
+    return GetAutostartDir() / "knoxfs.desktop";
 }
 
 bool GetStartOnSystemStartup()
 {
-    fsbridge::ifstream optionFile(GetAutostartFilePath());
+    fs::ifstream optionFile(GetAutostartFilePath());
     if (!optionFile.good())
         return false;
     // Scan through file for "Hidden=true":
@@ -564,18 +745,18 @@ bool SetStartOnSystemStartup(bool fAutoStart)
 
         fs::create_directories(GetAutostartDir());
 
-        fsbridge::ofstream optionFile(GetAutostartFilePath(), std::ios_base::out | std::ios_base::trunc);
+        fs::ofstream optionFile(GetAutostartFilePath(), std::ios_base::out | std::ios_base::trunc);
         if (!optionFile.good())
             return false;
-        // Write a pivx.desktop file to the autostart directory:
+        // Write a knoxfs.desktop file to the autostart directory:
         optionFile << "[Desktop Entry]\n";
         optionFile << "Type=Application\n";
         if (gArgs.GetBoolArg("-testnet", false))
-            optionFile << "Name=PIVX (testnet)\n";
+            optionFile << "Name=KFX (testnet)\n";
         else if (gArgs.GetBoolArg("-regtest", false))
-            optionFile << "Name=PIVX (regtest)\n";
+            optionFile << "Name=KFX (regtest)\n";
         else
-            optionFile << "Name=PIVX\n";
+            optionFile << "Name=KFX\n";
         optionFile << "Exec=" << pszExePath << strprintf(" -min -testnet=%d -regtest=%d\n", gArgs.GetBoolArg("-testnet", false), gArgs.GetBoolArg("-regtest", false));
         optionFile << "Terminal=false\n";
         optionFile << "Hidden=false\n";
@@ -584,6 +765,86 @@ bool SetStartOnSystemStartup(bool fAutoStart)
     return true;
 }
 
+
+#elif defined(Q_OS_MAC)
+// based on: https://github.com/Mozketo/LaunchAtLoginController/blob/master/LaunchAtLoginController.m
+
+LSSharedFileListItemRef findStartupItemInList(LSSharedFileListRef list, CFURLRef findUrl);
+LSSharedFileListItemRef findStartupItemInList(LSSharedFileListRef list, CFURLRef findUrl)
+{
+    CFArrayRef listSnapshot = LSSharedFileListCopySnapshot(list, nullptr);
+    if (listSnapshot == nullptr) {
+        return nullptr;
+    }
+
+    // loop through the list of startup items and try to find the knoxfs app
+    for (int i = 0; i < CFArrayGetCount(listSnapshot); i++) {
+        LSSharedFileListItemRef item = (LSSharedFileListItemRef)CFArrayGetValueAtIndex(listSnapshot, i);
+        UInt32 resolutionFlags = kLSSharedFileListNoUserInteraction | kLSSharedFileListDoNotMountVolumes;
+        CFURLRef currentItemURL = nullptr;
+
+#if defined(MAC_OS_X_VERSION_MAX_ALLOWED) && MAC_OS_X_VERSION_MAX_ALLOWED >= 10100
+    if (&LSSharedFileListItemCopyResolvedURL)
+        currentItemURL = LSSharedFileListItemCopyResolvedURL(item, resolutionFlags, nullptr);
+#if defined(MAC_OS_X_VERSION_MIN_REQUIRED) && MAC_OS_X_VERSION_MIN_REQUIRED < 10100
+    else
+        LSSharedFileListItemResolve(item, resolutionFlags, &currentItemURL, nullptr);
+#endif
+#else
+    LSSharedFileListItemResolve(item, resolutionFlags, &currentItemURL, nullptr);
+#endif
+
+        if (currentItemURL) {
+            if (CFEqual(currentItemURL, findUrl)) {
+                // found
+                CFRelease(listSnapshot);
+                CFRelease(currentItemURL);
+                return item;
+            }
+            CFRelease(currentItemURL);
+        }
+    }
+
+    CFRelease(listSnapshot);
+    return nullptr;
+}
+
+bool GetStartOnSystemStartup()
+{
+    CFURLRef bitcoinAppUrl = CFBundleCopyBundleURL(CFBundleGetMainBundle());
+    if (bitcoinAppUrl == nullptr) {
+        return false;
+    }
+
+    LSSharedFileListRef loginItems = LSSharedFileListCreate(nullptr, kLSSharedFileListSessionLoginItems, nullptr);
+    LSSharedFileListItemRef foundItem = findStartupItemInList(loginItems, bitcoinAppUrl);
+
+    CFRelease(bitcoinAppUrl);
+    return !!foundItem; // return boolified object
+}
+
+bool SetStartOnSystemStartup(bool fAutoStart)
+{
+    CFURLRef bitcoinAppUrl = CFBundleCopyBundleURL(CFBundleGetMainBundle());
+    if (bitcoinAppUrl == nullptr) {
+        return false;
+    }
+
+    LSSharedFileListRef loginItems = LSSharedFileListCreate(nullptr, kLSSharedFileListSessionLoginItems, nullptr);
+    LSSharedFileListItemRef foundItem = findStartupItemInList(loginItems, bitcoinAppUrl);
+
+    if (fAutoStart && !foundItem) {
+        // add knoxfs app to startup item list
+        LSSharedFileListInsertItemURL(loginItems, kLSSharedFileListItemBeforeFirst, nullptr, nullptr, bitcoinAppUrl, nullptr, nullptr);
+    } else if (!fAutoStart && foundItem) {
+        // remove item
+        LSSharedFileListItemRemove(loginItems, foundItem);
+    }
+
+    CFRelease(bitcoinAppUrl);
+    return true;
+}
+#pragma GCC diagnostic pop
 #else
 
 bool GetStartOnSystemStartup()

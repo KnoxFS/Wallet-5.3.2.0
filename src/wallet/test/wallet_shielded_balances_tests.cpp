@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
@@ -49,7 +49,7 @@ CWalletTx& AddShieldedBalanceToWallet(CAmount inputAmount,
 {
 
     // Dummy wallet, used to generate the dummy transparent input key and sign it in the transaction builder
-    CWallet dummyWallet("dummy", WalletDatabase::CreateDummy());
+    CWallet dummyWallet;
     dummyWallet.SetMinVersion(FEATURE_SAPLING);
     dummyWallet.SetupSPKM(false, true);
     LOCK(dummyWallet.cs_wallet);
@@ -134,10 +134,10 @@ BOOST_AUTO_TEST_CASE(GetShieldedSimpleCachedCreditAndDebit)
     //////// Credit ////////
     ///////////////////////
 
-    auto consensusParams = Params().GetConsensus();
+    auto consensusParams = RegtestActivateSapling();
 
     // Main wallet
-    CWallet &wallet = m_wallet;
+    CWallet &wallet = *pwalletMain;
     LOCK2(cs_main, wallet.cs_wallet);
     setupWallet(wallet);
 
@@ -191,6 +191,9 @@ BOOST_AUTO_TEST_CASE(GetShieldedSimpleCachedCreditAndDebit)
     // Checks that the only shielded output of this tx is change.
     BOOST_CHECK(wallet.GetSaplingScriptPubKeyMan()->IsNoteSaplingChange(
             SaplingOutPoint(wtxDebitUpdated.GetHash(), 0), pa));
+
+    // Revert to default
+    RegtestDeactivateSapling();
 }
 
 libzcash::SaplingPaymentAddress getNewDummyShieldedAddress()
@@ -234,10 +237,10 @@ CWalletTx& buildTxAndLoadToWallet(CWallet& wallet, const libzcash::SaplingExtend
  */
 BOOST_AUTO_TEST_CASE(VerifyShieldedToRemoteShieldedCachedBalance)
 {
-    auto consensusParams = Params().GetConsensus();
+    auto consensusParams = RegtestActivateSapling();
 
     // Main wallet
-    CWallet &wallet = m_wallet;
+    CWallet &wallet = *pwalletMain;
     LOCK2(cs_main, wallet.cs_wallet);
     setupWallet(wallet);
 
@@ -277,6 +280,9 @@ BOOST_AUTO_TEST_CASE(VerifyShieldedToRemoteShieldedCachedBalance)
     // Plus, change should be same and be cached as well
     BOOST_CHECK_EQUAL(wtxDebitUpdated.GetShieldedChange(), expectedShieldedChange);
     BOOST_CHECK(wtxDebitUpdated.fShieldedChangeCached);
+
+    // Revert to default
+    RegtestDeactivateSapling();
 }
 
 struct FakeBlock
@@ -314,14 +320,14 @@ FakeBlock SimpleFakeMine(CWalletTx& wtx, SaplingMerkleTree& currentTree, CWallet
  */
 BOOST_AUTO_TEST_CASE(GetShieldedAvailableCredit)
 {
-    auto consensusParams = Params().GetConsensus();
+    auto consensusParams = RegtestActivateSapling();
 
     // Main wallet
-    CWallet &wallet = m_wallet;
+    CWallet &wallet = *pwalletMain;
     LOCK2(cs_main, wallet.cs_wallet);
     setupWallet(wallet);
 
-    // 1) generate a shielded address and send 20 PIV in two shielded outputs
+    // 1) generate a shielded address and send 20 KFX in two shielded outputs
     libzcash::SaplingPaymentAddress pa = wallet.GenerateNewSaplingZKey();
     CAmount credit = COIN * 20;
 
@@ -358,7 +364,7 @@ BOOST_AUTO_TEST_CASE(GetShieldedAvailableCredit)
     std::vector<SaplingOutPoint> ops = {saplingEntries[0].op};
     uint256 anchor;
     std::vector<boost::optional<SaplingWitness>> witnesses;
-    wallet.GetSaplingScriptPubKeyMan()->GetSaplingNoteWitnesses(ops, witnesses, anchor);
+    pwalletMain->GetSaplingScriptPubKeyMan()->GetSaplingNoteWitnesses(ops, witnesses, anchor);
     SaplingSpendValues sapSpendValues{saplingEntries[0].note, anchor, *witnesses[0]};
 
     // Remote destination values

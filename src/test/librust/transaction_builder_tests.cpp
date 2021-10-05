@@ -1,5 +1,5 @@
 // Copyright (c) 2016-2020 The ZCash developers
-// Copyright (c) 2020 The PIVX developers
+// Copyright (c) 2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
@@ -13,11 +13,11 @@
 #include <univalue.h>
 #include <boost/test/unit_test.hpp>
 
-BOOST_FIXTURE_TEST_SUITE(sapling_transaction_builder_tests, SaplingRegTestingSetup)
+BOOST_FIXTURE_TEST_SUITE(sapling_transaction_builder_tests, SaplingTestingSetup)
 
 BOOST_AUTO_TEST_CASE(TransparentToSapling)
 {
-    auto consensusParams = Params().GetConsensus();
+    auto consensusParams = RegtestActivateSapling();
 
     CBasicKeyStore keystore;
     CKey tsk = AddTestCKeyToKeyStore(keystore);
@@ -33,7 +33,7 @@ BOOST_AUTO_TEST_CASE(TransparentToSapling)
     auto pk = *ivk.address(d);
 
     // Create a shielding transaction from transparent to Sapling
-    // 0.5 t-PIV in, 0.4 shielded-PIV out, 0.1 t-PIV fee
+    // 0.5 t-KFX in, 0.4 shielded-KFX out, 0.1 t-KFX fee
     auto builder = TransactionBuilder(consensusParams, 1, &keystore);
     builder.AddTransparentInput(COutPoint(uint256S("1234"), 0), scriptPubKey, 50000000);
     builder.AddSaplingOutput(fvk_from.ovk, pk, 40000000, {});
@@ -49,11 +49,13 @@ BOOST_AUTO_TEST_CASE(TransparentToSapling)
     CValidationState state;
     BOOST_CHECK(SaplingValidation::ContextualCheckTransaction(tx, state, Params(), 2, true, false));
     BOOST_CHECK_EQUAL(state.GetRejectReason(), "");
+
+    // Revert to default
+    RegtestDeactivateSapling();
 }
 
-BOOST_AUTO_TEST_CASE(SaplingToSapling)
-{
-    auto consensusParams = Params().GetConsensus();
+BOOST_AUTO_TEST_CASE(SaplingToSapling) {
+    auto consensusParams = RegtestActivateSapling();
 
     auto sk = libzcash::SaplingSpendingKey::random();
     auto expsk = sk.expanded_spending_key();
@@ -61,7 +63,7 @@ BOOST_AUTO_TEST_CASE(SaplingToSapling)
     auto pa = sk.default_address();
 
     // Create a Sapling-only transaction
-    // --- 0.4 shielded-PIV in, 0.299 shielded-PIV out, 0.1 shielded-PIV fee, 0.001 shielded-PIV change (added to fee)
+    // --- 0.4 shielded-KFX in, 0.299 shielded-KFX out, 0.1 shielded-KFX fee, 0.001 shielded-KFX change (added to fee)
     auto testNote = GetTestSaplingNote(pa, 40000000);
     auto builder = TransactionBuilder(consensusParams, 2);
     builder.AddSaplingSpend(expsk, testNote.note, testNote.tree.root(), testNote.tree.witness());
@@ -85,7 +87,7 @@ BOOST_AUTO_TEST_CASE(SaplingToSapling)
     BOOST_CHECK(SaplingValidation::ContextualCheckTransaction(tx, state, Params(), 3, true, false));
     BOOST_CHECK_EQUAL(state.GetRejectReason(), "");
 
-    // --- Now try with 1 shielded-PIV in, 0.5 shielded-PIV out, 0.1 shielded-PIV fee, 0.4 shielded-PIV change
+    // --- Now try with 1 shielded-KFX in, 0.5 shielded-KFX out, 0.1 shielded-KFX fee, 0.4 shielded-KFX change
     auto testNote2 = GetTestSaplingNote(pa, 100000000);
     auto builder2 = TransactionBuilder(consensusParams, 2);
     builder2.AddSaplingSpend(expsk, testNote2.note, testNote2.tree.root(), testNote2.tree.witness());
@@ -99,33 +101,45 @@ BOOST_AUTO_TEST_CASE(SaplingToSapling)
     BOOST_CHECK_EQUAL(tx2.sapData->valueBalance, 10000000);
     BOOST_CHECK(SaplingValidation::ContextualCheckTransaction(tx2, state, Params(), 3, true, false));
     BOOST_CHECK_EQUAL(state.GetRejectReason(), "");
+
+    // Revert to default
+    RegtestDeactivateSapling();
 }
 
 BOOST_AUTO_TEST_CASE(ThrowsOnTransparentInputWithoutKeyStore)
 {
-    auto builder = TransactionBuilder(Params().GetConsensus(), 1);
+    SelectParams(CBaseChainParams::REGTEST);
+    auto consensusParams = Params().GetConsensus();
+
+    auto builder = TransactionBuilder(consensusParams, 1);
     BOOST_CHECK_THROW(builder.AddTransparentInput(COutPoint(), CScript(), 1), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_CASE(RejectsInvalidTransparentOutput)
 {
+    SelectParams(CBaseChainParams::REGTEST);
+    auto consensusParams = Params().GetConsensus();
+
     // Default CTxDestination type is an invalid address
     CTxDestination taddr;
-    auto builder = TransactionBuilder(Params().GetConsensus(), 1);
+    auto builder = TransactionBuilder(consensusParams, 1);
     BOOST_CHECK_THROW(builder.AddTransparentOutput(taddr, 50), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_CASE(RejectsInvalidTransparentChangeAddress)
 {
+    SelectParams(CBaseChainParams::REGTEST);
+    auto consensusParams = Params().GetConsensus();
+
     // Default CTxDestination type is an invalid address
     CTxDestination taddr;
-    auto builder = TransactionBuilder(Params().GetConsensus(), 1);
+    auto builder = TransactionBuilder(consensusParams, 1);
     BOOST_CHECK_THROW(builder.SendChangeTo(taddr), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_CASE(FailsWithNegativeChange)
 {
-    auto consensusParams = Params().GetConsensus();
+    auto consensusParams = RegtestActivateSapling();
 
     // Generate dummy Sapling address
     auto sk = libzcash::SaplingSpendingKey::random();
@@ -140,36 +154,39 @@ BOOST_AUTO_TEST_CASE(FailsWithNegativeChange)
     auto scriptPubKey = GetScriptForDestination(tkeyid);
     CTxDestination taddr = tkeyid;
 
-    // Generate a 0.5 PIV note
+    // Generate a 0.5 KFX note
     auto testNote = GetTestSaplingNote(pa, 59990000);
 
     // Fail if there is only a Sapling output
-    // 0.5 shielded-PIV out, 0.1 t-PIV fee
+    // 0.5 shielded-KFX out, 0.1 t-KFX fee
     auto builder = TransactionBuilder(consensusParams, 1);
     builder.AddSaplingOutput(fvk.ovk, pa, 50000000, {});
     builder.SetFee(10000000);
     BOOST_CHECK_EQUAL("Change cannot be negative", builder.Build().GetError());
 
     // Fail if there is only a transparent output
-    // 0.5 t-PIV out, 0.1 t-PIV fee
+    // 0.5 t-KFX out, 0.1 t-KFX fee
     builder = TransactionBuilder(consensusParams, 1, &keystore);
     builder.AddTransparentOutput(taddr, 50000000);
     builder.SetFee(10000000);
     BOOST_CHECK_EQUAL("Change cannot be negative", builder.Build().GetError());
 
     // Fails if there is insufficient input
-    // 0.5 t-PIV out, 0.1 t-PIV fee, 0.59999 shielded-PIV in
+    // 0.5 t-KFX out, 0.1 t-KFX fee, 0.59999 shielded-KFX in
     builder.AddSaplingSpend(expsk, testNote.note, testNote.tree.root(), testNote.tree.witness());
     BOOST_CHECK_EQUAL("Change cannot be negative", builder.Build().GetError());
 
     // Succeeds if there is sufficient input
     builder.AddTransparentInput(COutPoint(), scriptPubKey, 10000);
     BOOST_CHECK(builder.Build().IsTx());
+
+    // Revert to default
+    RegtestDeactivateSapling();
 }
 
 BOOST_AUTO_TEST_CASE(ChangeOutput)
 {
-    auto consensusParams = Params().GetConsensus();
+    auto consensusParams = RegtestActivateSapling();
 
     // Generate dummy Sapling address
     auto sk = libzcash::SaplingSpendingKey::random();
@@ -243,11 +260,14 @@ BOOST_AUTO_TEST_CASE(ChangeOutput)
         BOOST_CHECK_EQUAL(tx.sapData->valueBalance, 0);
         BOOST_CHECK_EQUAL(tx.vout[0].nValue, 15000000);
     }
+
+    // Revert to default
+    RegtestDeactivateSapling();
 }
 
 BOOST_AUTO_TEST_CASE(SetFee)
 {
-    auto consensusParams = Params().GetConsensus();
+    auto consensusParams = RegtestActivateSapling();
 
     // Generate dummy Sapling address
     auto sk = libzcash::SaplingSpendingKey::random();
@@ -272,10 +292,14 @@ BOOST_AUTO_TEST_CASE(SetFee)
         BOOST_CHECK_EQUAL(tx.sapData->vShieldedOutput.size(), 2);
         BOOST_CHECK_EQUAL(tx.sapData->valueBalance, COIN);
     }
+
+    // Revert to default
+    RegtestDeactivateSapling();
 }
 
 BOOST_AUTO_TEST_CASE(CheckSaplingTxVersion)
 {
+    SelectParams(CBaseChainParams::REGTEST);
     auto consensusParams = Params().GetConsensus();
 
     auto sk = libzcash::SaplingSpendingKey::random();

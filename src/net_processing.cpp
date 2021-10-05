@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2016 The Bitcoin Core developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,7 +8,6 @@
 
 #include "budget/budgetmanager.h"
 #include "chain.h"
-#include "evo/deterministicmns.h"
 #include "masternodeman.h"
 #include "masternode-payments.h"
 #include "masternode-sync.h"
@@ -18,38 +17,20 @@
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "sporkdb.h"
-#include "streams.h"
-#include "util/validation.h"
 
 int64_t nTimeBestReceived = 0;  // Used only to inform the wallet of when we last received a block
 
 static const uint64_t RANDOMIZER_ID_ADDRESS_RELAY = 0x3cac0035b5866b90ULL; // SHA256("main address relay")[0:8]
 
-/** the maximum percentage of addresses from our addrman to return in response to a getaddr message. */
-static constexpr size_t MAX_PCT_ADDR_TO_SEND = 23;
-
-struct IteratorComparator
-{
-    template<typename I>
-    bool operator()(const I& a, const I& b) const
-    {
-        return &(*a) < &(*b);
-    }
-};
-
 struct COrphanTx {
-    // When modifying, adapt the copy of this definition in tests/DoS_tests.
     CTransactionRef tx;
     NodeId fromPeer;
-    int64_t nTimeExpire;
-    size_t list_pos;
 };
-RecursiveMutex g_cs_orphans;
-std::map<uint256, COrphanTx> mapOrphanTransactions GUARDED_BY(g_cs_orphans);
-std::map<COutPoint, std::set<std::map<uint256, COrphanTx>::iterator, IteratorComparator>> mapOrphanTransactionsByPrev GUARDED_BY(g_cs_orphans);
-std::vector<std::map<uint256, COrphanTx>::iterator> g_orphan_list GUARDED_BY(g_cs_orphans); //! For random eviction
 
-void EraseOrphansFor(NodeId peer);
+std::map<uint256, COrphanTx> mapOrphanTransactions GUARDED_BY(cs_main);
+std::map<uint256, std::set<uint256> > mapOrphanTransactionsByPrev GUARDED_BY(cs_main);
+
+void EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 // Internal stuff
 namespace {
@@ -104,8 +85,20 @@ int nPreferredDownload = 0;
 
 } // anon namespace
 
+
+//////////////////////////////////////////////////////////////////////////////
+//
+// Registration of network node signals.
+//
+
 namespace
 {
+struct CBlockReject {
+    unsigned char chRejectCode;
+    std::string strRejectReason;
+    uint256 hashBlock;
+};
+
 
 class CNodeBlocks
 {
@@ -135,7 +128,8 @@ public:
 
         // Compute the number of the received blocks
         size_t nBlocks = 0;
-        for (auto point : points) {
+        for(auto point : points)
+        {
             nBlocks += point.second;
         }
 
@@ -146,7 +140,8 @@ public:
         bool banNode = (nAvgValue >= 1.5 * maxAvg && size >= maxAvg) ||
                        (nAvgValue >= maxAvg && nBlocks >= maxSize) ||
                        (nBlocks >= maxSize * 3);
-        if (banNode) {
+        if(banNode)
+        {
             // Clear the points and ban the node
             points.clear();
             return state.DoS(100, error("block-spam ban node for sending spam"));
@@ -198,6 +193,8 @@ struct CNodeState {
     bool fShouldBan;
     //! String name of this peer (debugging/logging purposes).
     const std::string name;
+    //! List of asynchronously-determined block rejections to notify this peer about.
+    std::vector<CBlockReject> rejects;
     //! The best known block we know this peer has announced.
     const CBlockIndex* pindexBestKnownBlock;
     //! The hash of the last unknown block this peer has announced.
@@ -237,7 +234,7 @@ CNodeState* State(NodeId pnode)
 {
     std::map<NodeId, CNodeState>::iterator it = mapNodeState.find(pnode);
     if (it == mapNodeState.end())
-        return nullptr;
+        return NULL;
     return &it->second;
 }
 
@@ -251,7 +248,7 @@ void UpdatePreferredDownload(CNode* node, CNodeState* state)
     nPreferredDownload += state->fPreferredDownload;
 }
 
-void PushNodeVersion(CNode* pnode, CConnman* connman, int64_t nTime)
+void PushNodeVersion(CNode* pnode, CConnman& connman, int64_t nTime)
 {
     ServiceFlags nLocalNodeServices = pnode->GetLocalServices();
     uint64_t nonce = pnode->GetLocalNonce();
@@ -262,7 +259,7 @@ void PushNodeVersion(CNode* pnode, CConnman* connman, int64_t nTime)
     CAddress addrYou = (addr.IsRoutable() && !IsProxy(addr) ? addr : CAddress(CService(), addr.nServices));
     CAddress addrMe = CAddress(CService(), nLocalNodeServices);
 
-    connman->PushMessage(pnode, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERSION, PROTOCOL_VERSION, (uint64_t)nLocalNodeServices, nTime, addrYou, addrMe,
+    connman.PushMessage(pnode, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERSION, PROTOCOL_VERSION, (uint64_t)nLocalNodeServices, nTime, addrYou, addrMe,
             nonce, strSubVersion, nNodeStartingHeight, true));
 
     if (fLogIPs)
@@ -271,13 +268,45 @@ void PushNodeVersion(CNode* pnode, CConnman* connman, int64_t nTime)
         LogPrint(BCLog::NET, "send version message: version %d, blocks=%d, us=%s, peer=%d\n", PROTOCOL_VERSION, nNodeStartingHeight, addrMe.ToString(), nodeid);
 }
 
+void InitializeNode(CNode *pnode, CConnman& connman) {
+    CAddress addr = pnode->addr;
+    std::string addrName = pnode->GetAddrName();
+    NodeId nodeid = pnode->GetId();
+    {
+        LOCK(cs_main);
+        mapNodeState.emplace_hint(mapNodeState.end(), std::piecewise_construct, std::forward_as_tuple(nodeid), std::forward_as_tuple(addr, std::move(addrName)));
+    }
+    if(!pnode->fInbound)
+        PushNodeVersion(pnode, connman, GetTime());
+}
+
+void FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime)
+{
+    fUpdateConnectionTime = false;
+    LOCK(cs_main);
+    CNodeState* state = State(nodeid);
+
+    if (state->fSyncStarted)
+        nSyncStarted--;
+
+    if (state->nMisbehavior == 0 && state->fCurrentlyConnected) {
+        fUpdateConnectionTime = true;
+    }
+
+    for (const QueuedBlock& entry : state->vBlocksInFlight)
+        mapBlocksInFlight.erase(entry.hash);
+    EraseOrphansFor(nodeid);
+    nPreferredDownload -= state->fPreferredDownload;
+
+    mapNodeState.erase(nodeid);
+}
+
 // Requires cs_main.
 void MarkBlockAsReceived(const uint256& hash)
 {
     std::map<uint256, std::pair<NodeId, std::list<QueuedBlock>::iterator> >::iterator itInFlight = mapBlocksInFlight.find(hash);
     if (itInFlight != mapBlocksInFlight.end()) {
         CNodeState* state = State(itInFlight->second.first);
-        assert(state != nullptr);
         nQueuedValidatedHeaders -= itInFlight->second.second->fValidatedHeaders;
         state->vBlocksInFlight.erase(itInFlight->second.second);
         state->nBlocksInFlight--;
@@ -290,7 +319,7 @@ void MarkBlockAsReceived(const uint256& hash)
 void MarkBlockAsInFlight(NodeId nodeid, const uint256& hash, const CBlockIndex* pindex = nullptr)
 {
     CNodeState* state = State(nodeid);
-    assert(state != nullptr);
+    assert(state != NULL);
 
     // Make sure it's not listed somewhere already.
     MarkBlockAsReceived(hash);
@@ -306,7 +335,7 @@ void MarkBlockAsInFlight(NodeId nodeid, const uint256& hash, const CBlockIndex* 
 void ProcessBlockAvailability(NodeId nodeid)
 {
     CNodeState* state = State(nodeid);
-    assert(state != nullptr);
+    assert(state != NULL);
 
     if (!state->hashLastUnknownBlock.IsNull()) {
         BlockMap::iterator itOld = mapBlockIndex.find(state->hashLastUnknownBlock);
@@ -322,7 +351,7 @@ void ProcessBlockAvailability(NodeId nodeid)
 void UpdateBlockAvailability(NodeId nodeid, const uint256& hash)
 {
     CNodeState* state = State(nodeid);
-    assert(state != nullptr);
+    assert(state != NULL);
 
     ProcessBlockAvailability(nodeid);
 
@@ -346,7 +375,7 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
 
     vBlocks.reserve(vBlocks.size() + count);
     CNodeState* state = State(nodeid);
-    assert(state != nullptr);
+    assert(state != NULL);
 
     // Make sure pindexBestKnownBlock is up to date, we'll need it.
     ProcessBlockAvailability(nodeid);
@@ -423,39 +452,6 @@ void FindNextBlocksToDownload(NodeId nodeid, unsigned int count, std::vector<con
 
 } // anon namespace
 
-void PeerLogicValidation::InitializeNode(CNode *pnode) {
-    CAddress addr = pnode->addr;
-    std::string addrName = pnode->GetAddrName();
-    NodeId nodeid = pnode->GetId();
-    {
-        LOCK(cs_main);
-        mapNodeState.emplace_hint(mapNodeState.end(), std::piecewise_construct, std::forward_as_tuple(nodeid), std::forward_as_tuple(addr, std::move(addrName)));
-    }
-    if(!pnode->fInbound)
-        PushNodeVersion(pnode, connman, GetTime());
-}
-
-void PeerLogicValidation::FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime)
-{
-    fUpdateConnectionTime = false;
-    LOCK(cs_main);
-    CNodeState* state = State(nodeid);
-
-    if (state->fSyncStarted)
-        nSyncStarted--;
-
-    if (state->nMisbehavior == 0 && state->fCurrentlyConnected) {
-        fUpdateConnectionTime = true;
-    }
-
-    for (const QueuedBlock& entry : state->vBlocksInFlight)
-        mapBlocksInFlight.erase(entry.hash);
-    EraseOrphansFor(nodeid);
-    nPreferredDownload -= state->fPreferredDownload;
-
-    mapNodeState.erase(nodeid);
-}
-
 bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats)
 {
     LOCK(cs_main);
@@ -472,12 +468,29 @@ bool GetNodeStateStats(NodeId nodeid, CNodeStateStats& stats)
     return true;
 }
 
+void RegisterNodeSignals(CNodeSignals& nodeSignals)
+{
+    nodeSignals.ProcessMessages.connect(&ProcessMessages);
+    nodeSignals.SendMessages.connect(&SendMessages);
+    nodeSignals.InitializeNode.connect(&InitializeNode);
+    nodeSignals.FinalizeNode.connect(&FinalizeNode);
+}
+
+void UnregisterNodeSignals(CNodeSignals& nodeSignals)
+{
+    nodeSignals.ProcessMessages.disconnect(&ProcessMessages);
+    nodeSignals.SendMessages.disconnect(&SendMessages);
+    nodeSignals.InitializeNode.disconnect(&InitializeNode);
+    nodeSignals.FinalizeNode.disconnect(&FinalizeNode);
+}
+
+
 //////////////////////////////////////////////////////////////////////////////
 //
 // mapOrphanTransactions
 //
 
-bool AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
+bool AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     const uint256& hash = tx->GetHash();
     if (mapOrphanTransactions.count(hash))
@@ -488,163 +501,92 @@ bool AddOrphanTx(const CTransactionRef& tx, NodeId peer) EXCLUSIVE_LOCKS_REQUIRE
     // large transaction with a missing parent then we assume
     // it will rebroadcast it later, after the parent transaction(s)
     // have been mined or received.
-    // 25 orphans, each of which is at most 400,000 bytes big is
-    // at most 10 megabytes of orphans and somewhat more byprev index (in the worst case):
+    // 10,000 orphans, each of which is at most 5,000 bytes big is
+    // at most 500 megabytes of orphans:
     unsigned int sz = tx->GetTotalSize();
-    unsigned int nMaxSize = tx->IsShieldedTx() ? MAX_TX_SIZE_AFTER_SAPLING : MAX_STANDARD_TX_SIZE;
-    if (sz >= nMaxSize) {
+    if (sz > 5000) {
         LogPrint(BCLog::MEMPOOL, "ignoring large orphan tx (size: %u, hash: %s)\n", sz, hash.ToString());
         return false;
     }
 
-    auto ret = mapOrphanTransactions.emplace(hash, COrphanTx{tx, peer, GetTime() + ORPHAN_TX_EXPIRE_TIME, g_orphan_list.size()});
+    auto ret = mapOrphanTransactions.emplace(hash, COrphanTx{tx, peer});
     assert(ret.second);
-    g_orphan_list.emplace_back(ret.first);
-    for (const CTxIn& txin : tx->vin) {
-        mapOrphanTransactionsByPrev[txin.prevout].insert(ret.first);
-    }
+    for (const CTxIn& txin : tx->vin)
+        mapOrphanTransactionsByPrev[txin.prevout.hash].insert(hash);
 
-    LogPrint(BCLog::MEMPOOL, "stored orphan tx %s (mapsz %u outsz %u)\n", hash.ToString(),
+    LogPrint(BCLog::MEMPOOL, "stored orphan tx %s (mapsz %u prevsz %u)\n", hash.ToString(),
         mapOrphanTransactions.size(), mapOrphanTransactionsByPrev.size());
     return true;
 }
 
-int static EraseOrphanTx(uint256 hash) EXCLUSIVE_LOCKS_REQUIRED(g_cs_orphans)
+void static EraseOrphanTx(uint256 hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     std::map<uint256, COrphanTx>::iterator it = mapOrphanTransactions.find(hash);
     if (it == mapOrphanTransactions.end())
-        return 0;
+        return;
     for (const CTxIn& txin : it->second.tx->vin) {
-        auto itPrev = mapOrphanTransactionsByPrev.find(txin.prevout);
+        std::map<uint256, std::set<uint256> >::iterator itPrev = mapOrphanTransactionsByPrev.find(txin.prevout.hash);
         if (itPrev == mapOrphanTransactionsByPrev.end())
             continue;
-        itPrev->second.erase(it);
+        itPrev->second.erase(hash);
         if (itPrev->second.empty())
             mapOrphanTransactionsByPrev.erase(itPrev);
     }
-
-    size_t old_pos = it->second.list_pos;
-    assert(g_orphan_list[old_pos] == it);
-    if (old_pos + 1 != g_orphan_list.size()) {
-        // Unless we're deleting the last entry in g_orphan_list, move the last
-        // entry to the position we're deleting.
-        auto it_last = g_orphan_list.back();
-        g_orphan_list[old_pos] = it_last;
-        it_last->second.list_pos = old_pos;
-    }
-    g_orphan_list.pop_back();
-
     mapOrphanTransactions.erase(it);
-    return 1;
 }
 
-void EraseOrphansFor(NodeId peer)
+void EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
-    LOCK(g_cs_orphans);
     int nErased = 0;
     std::map<uint256, COrphanTx>::iterator iter = mapOrphanTransactions.begin();
     while (iter != mapOrphanTransactions.end()) {
         std::map<uint256, COrphanTx>::iterator maybeErase = iter++; // increment to avoid iterator becoming invalid
         if (maybeErase->second.fromPeer == peer) {
-            nErased += EraseOrphanTx(maybeErase->second.tx->GetHash());
+            EraseOrphanTx(maybeErase->second.tx->GetHash());
+            ++nErased;
         }
     }
     if (nErased > 0) LogPrint(BCLog::MEMPOOL, "Erased %d orphan tx from peer %d\n", nErased, peer);
 }
 
 
-unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans)
+unsigned int LimitOrphanTxSize(unsigned int nMaxOrphans) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
-    LOCK(g_cs_orphans);
-
     unsigned int nEvicted = 0;
-    static int64_t nNextSweep;
-    int64_t nNow = GetTime();
-    if (nNextSweep <= nNow) {
-        // Sweep out expired orphan pool entries:
-        int nErased = 0;
-        int64_t nMinExpTime = nNow + ORPHAN_TX_EXPIRE_TIME - ORPHAN_TX_EXPIRE_INTERVAL;
-        auto iter = mapOrphanTransactions.begin();
-        while (iter != mapOrphanTransactions.end()) {
-            auto maybeErase = iter++;
-            if (maybeErase->second.nTimeExpire <= nNow) {
-                nErased += EraseOrphanTx(maybeErase->second.tx->GetHash());
-            } else {
-                nMinExpTime = std::min(maybeErase->second.nTimeExpire, nMinExpTime);
-            }
-        }
-        // Sweep again 5 minutes after the next entry that expires in order to batch the linear scan.
-        nNextSweep = nMinExpTime + ORPHAN_TX_EXPIRE_INTERVAL;
-        if (nErased > 0) LogPrint(BCLog::MEMPOOL, "Erased %d orphan tx due to expiration\n", nErased);
-    }
-    FastRandomContext rng;
     while (mapOrphanTransactions.size() > nMaxOrphans) {
         // Evict a random orphan:
-        size_t randompos = rng.randrange(g_orphan_list.size());
-        EraseOrphanTx(g_orphan_list[randompos]->first);
+        uint256 randomhash = GetRandHash();
+        std::map<uint256, COrphanTx>::iterator it = mapOrphanTransactions.lower_bound(randomhash);
+        if (it == mapOrphanTransactions.end())
+            it = mapOrphanTransactions.begin();
+        EraseOrphanTx(it->first);
         ++nEvicted;
     }
     return nEvicted;
 }
 
 // Requires cs_main.
-void Misbehaving(NodeId pnode, int howmuch, const std::string& message) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
+void Misbehaving(NodeId pnode, int howmuch) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
-    if (howmuch == 0)
+    //! gradual
+    if (howmuch < 2)
         return;
 
     CNodeState* state = State(pnode);
-    if (state == nullptr)
+    if (state == NULL)
         return;
 
     state->nMisbehavior += howmuch;
     int banscore = gArgs.GetArg("-banscore", DEFAULT_BANSCORE_THRESHOLD);
-    std::string message_prefixed = message.empty() ? "" : (": " + message);
     if (state->nMisbehavior >= banscore && state->nMisbehavior - howmuch < banscore) {
-        LogPrint(BCLog::NET, "%s: %s peer=%d (%d -> %d) BAN THRESHOLD EXCEEDED%s\n", __func__, state->name, pnode, state->nMisbehavior-howmuch, state->nMisbehavior, message_prefixed);
+        LogPrintf("Misbehaving: %s (%d -> %d) BAN THRESHOLD EXCEEDED\n", state->name, state->nMisbehavior - howmuch, state->nMisbehavior);
         state->fShouldBan = true;
-    } else {
-        LogPrint(BCLog::NET, "%s: %s peer=%d (%d -> %d)%s\n", __func__, state->name, pnode, state->nMisbehavior-howmuch, state->nMisbehavior, message_prefixed);
-    }
+    } else
+        LogPrintf("Misbehaving: %s (%d -> %d)\n", state->name, state->nMisbehavior - howmuch, state->nMisbehavior);
 }
 
-static void CheckBlockSpam(NodeId nodeId, const uint256& hashBlock)
-{
-    // Block spam filtering
-    if (!gArgs.GetBoolArg("-blockspamfilter", DEFAULT_BLOCK_SPAM_FILTER)) {
-        return;
-    }
 
-    CNodeState* nodestate = nullptr;
-    int blockReceivedHeight = 0;
-    {
-        LOCK(cs_main);
-        nodestate = State(nodeId);
-        if (!nodestate) { return; }
 
-        const auto it = mapBlockIndex.find(hashBlock);
-        if (it == mapBlockIndex.end()) { return; }
-        blockReceivedHeight = it->second->nHeight;
-    }
-
-    nodestate->nodeBlocks.onBlockReceived(blockReceivedHeight);
-    bool nodeStatus = true;
-    // UpdateState will return false if the node is attacking us or update the score and return true.
-    CValidationState state;
-    nodeStatus = nodestate->nodeBlocks.updateState(state, nodeStatus);
-    int nDoS = 0;
-    if (state.IsInvalid(nDoS)) {
-        if (nDoS > 0) {
-            LOCK(cs_main);
-            Misbehaving(nodeId, nDoS);
-        }
-        nodeStatus = false;
-    }
-
-    if (!nodeStatus) {
-        LogPrintf("Block spam protection: %s\n", hashBlock.ToString());
-    }
-}
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -657,37 +599,6 @@ PeerLogicValidation::PeerLogicValidation(CConnman* connmanIn) :
 {
     // Initialize global variables that cannot be constructed at startup.
     recentRejects.reset(new CRollingBloomFilter(120000, 0.000001));
-}
-
-void PeerLogicValidation::BlockConnected(const std::shared_ptr<const CBlock>& pblock, const CBlockIndex* pindex)
-{
-    LOCK(g_cs_orphans);
-
-    std::vector<uint256> vOrphanErase;
-
-    for (const CTransactionRef& ptx : pblock->vtx) {
-        const CTransaction& tx = *ptx;
-
-        // Which orphan pool entries must we evict?
-        for (size_t j = 0; j < tx.vin.size(); j++) {
-            auto itByPrev = mapOrphanTransactionsByPrev.find(tx.vin[j].prevout);
-            if (itByPrev == mapOrphanTransactionsByPrev.end()) continue;
-            for (auto mi = itByPrev->second.begin(); mi != itByPrev->second.end(); ++mi) {
-                const CTransaction& orphanTx = *(*mi)->second.tx;
-                const uint256& orphanHash = orphanTx.GetHash();
-                vOrphanErase.emplace_back(orphanHash);
-            }
-        }
-    }
-
-    // Erase orphan transactions include or precluded by this block
-    if (!vOrphanErase.empty()) {
-        int nErased = 0;
-        for (uint256& orphanHash : vOrphanErase) {
-            nErased += EraseOrphanTx(orphanHash);
-        }
-        LogPrint(BCLog::MEMPOOL, "Erased %d orphan tx included or conflicted by block\n", nErased);
-    }
 }
 
 void PeerLogicValidation::UpdatedBlockTip(const CBlockIndex* pindexNew, const CBlockIndex* pindexFork, bool fInitialDownload)
@@ -719,12 +630,11 @@ void PeerLogicValidation::BlockChecked(const CBlock& block, const CValidationSta
     if (state.IsInvalid(nDoS)) {
         if (it != mapBlockSource.end() && State(it->second)) {
             assert (state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
+            CBlockReject reject = {(unsigned char) state.GetRejectCode(), state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), hash};
+            State(it->second)->rejects.push_back(reject);
             if (nDoS > 0) {
                 Misbehaving(it->second, nDoS);
             }
-
-            // Spam filter
-            CheckBlockSpam(it->second, block.GetHash());
         }
     }
 
@@ -751,13 +661,10 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
             recentRejects->reset();
         }
 
-        {
-            LOCK(g_cs_orphans);
-            if (mapOrphanTransactions.count(inv.hash)) return true;
-        }
 
         return recentRejects->contains(inv.hash) ||
                mempool.exists(inv.hash) ||
+               mapOrphanTransactions.count(inv.hash) ||
                pcoinsTip->HaveCoinInCache(COutPoint(inv.hash, 0)) || // Best effort: only try output 0 and 1
                pcoinsTip->HaveCoinInCache(COutPoint(inv.hash, 1));
     }
@@ -815,18 +722,17 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     return true;
 }
 
-static void RelayTransaction(const CTransaction& tx, CConnman* connman)
+static void RelayTransaction(const CTransaction& tx, CConnman& connman)
 {
     CInv inv(MSG_TX, tx.GetHash());
-    connman->ForEachNode([&inv](CNode* pnode)
+    connman.ForEachNode([&inv](CNode* pnode)
     {
         pnode->PushInventory(inv);
     });
 }
 
-static void RelayAddress(const CAddress& addr, bool fReachable, CConnman* connman)
+static void RelayAddress(const CAddress& addr, bool fReachable, CConnman& connman)
 {
-    if (!fReachable && !addr.IsRelayable()) return;
     int nRelayNodes = fReachable ? 2 : 1; // limited relaying of addresses outside our network(s)
 
     // Relay to a limited number of other nodes
@@ -834,11 +740,13 @@ static void RelayAddress(const CAddress& addr, bool fReachable, CConnman* connma
     // at a time so the addrKnowns of the chosen nodes prevent repeats
     uint64_t hashAddr = addr.GetHash();
     std::multimap<uint64_t, CNode*> mapMix;
-    const CSipHasher hasher = connman->GetDeterministicRandomizer(RANDOMIZER_ID_ADDRESS_RELAY).Write(hashAddr << 32).Write((GetTime() + hashAddr) / (24*60*60));
+    const CSipHasher hasher = connman.GetDeterministicRandomizer(RANDOMIZER_ID_ADDRESS_RELAY).Write(hashAddr << 32).Write((GetTime() + hashAddr) / (24*60*60));
 
     auto sortfunc = [&mapMix, &hasher](CNode* pnode) {
-        uint64_t hashKey = CSipHasher(hasher).Write(pnode->id).Finalize();
-        mapMix.emplace(hashKey, pnode);
+        if (pnode->nVersion >= CADDR_TIME_VERSION) {
+            uint64_t hashKey = CSipHasher(hasher).Write(pnode->id).Finalize();
+            mapMix.emplace(hashKey, pnode);
+        }
     };
 
     auto pushfunc = [&addr, &mapMix, &nRelayNodes] {
@@ -847,87 +755,78 @@ static void RelayAddress(const CAddress& addr, bool fReachable, CConnman* connma
             mi->second->PushAddress(addr, insecure_rand);
     };
 
-    connman->ForEachNodeThen(std::move(sortfunc), std::move(pushfunc));
+    connman.ForEachNodeThen(std::move(sortfunc), std::move(pushfunc));
 }
 
 bool static PushTierTwoGetDataRequest(const CInv& inv,
                                       CNode* pfrom,
-                                      CConnman* connman,
-                                      CNetMsgMaker& msgMaker,
-                                      int chainHeight)
+                                      CConnman& connman,
+                                      CNetMsgMaker& msgMaker)
 {
     if (inv.type == MSG_SPORK) {
         if (mapSporks.count(inv.hash)) {
             CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
             ss.reserve(1000);
             ss << mapSporks[inv.hash];
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::SPORK, ss));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::SPORK, ss));
             return true;
         }
     }
 
-    // !TODO: remove when transition to DMN is complete
-    if (inv.type == MSG_MASTERNODE_WINNER && !deterministicMNManager->LegacyMNObsolete()) {
+    if (inv.type == MSG_MASTERNODE_WINNER) {
         if (masternodePayments.mapMasternodePayeeVotes.count(inv.hash)) {
             CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
             ss.reserve(1000);
             ss << masternodePayments.mapMasternodePayeeVotes[inv.hash];
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::MNWINNER, ss));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNWINNER, ss));
             return true;
         }
     }
 
     if (inv.type == MSG_BUDGET_VOTE) {
         if (g_budgetman.HaveSeenProposalVote(inv.hash)) {
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::BUDGETVOTE, g_budgetman.GetProposalVoteSerialized(inv.hash)));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::BUDGETVOTE, g_budgetman.GetProposalVoteSerialized(inv.hash)));
             return true;
         }
     }
 
     if (inv.type == MSG_BUDGET_PROPOSAL) {
         if (g_budgetman.HaveProposal(inv.hash)) {
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::BUDGETPROPOSAL, g_budgetman.GetProposalSerialized(inv.hash)));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::BUDGETPROPOSAL, g_budgetman.GetProposalSerialized(inv.hash)));
             return true;
         }
     }
 
     if (inv.type == MSG_BUDGET_FINALIZED_VOTE) {
         if (g_budgetman.HaveSeenFinalizedBudgetVote(inv.hash)) {
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::FINALBUDGETVOTE, g_budgetman.GetFinalizedBudgetVoteSerialized(inv.hash)));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::FINALBUDGETVOTE, g_budgetman.GetFinalizedBudgetVoteSerialized(inv.hash)));
             return true;
         }
     }
 
     if (inv.type == MSG_BUDGET_FINALIZED) {
         if (g_budgetman.HaveFinalizedBudget(inv.hash)) {
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::FINALBUDGET, g_budgetman.GetFinalizedBudgetSerialized(inv.hash)));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::FINALBUDGET, g_budgetman.GetFinalizedBudgetSerialized(inv.hash)));
             return true;
         }
     }
 
-    // !TODO: remove when transition to DMN is complete
-    if (inv.type == MSG_MASTERNODE_ANNOUNCE && !deterministicMNManager->LegacyMNObsolete()) {
-        auto it = mnodeman.mapSeenMasternodeBroadcast.find(inv.hash);
-        if (it != mnodeman.mapSeenMasternodeBroadcast.end()) {
-            const auto& mnb = it->second;
-
-            int version = mnb.isBIP155Addr ? PROTOCOL_VERSION | ADDRV2_FORMAT : PROTOCOL_VERSION;
-            CDataStream ss(SER_NETWORK, version);
+    if (inv.type == MSG_MASTERNODE_ANNOUNCE) {
+        if (mnodeman.mapSeenMasternodeBroadcast.count(inv.hash)) {
+            CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
             ss.reserve(1000);
-            ss << mnb;
-            std::string msgType = mnb.isBIP155Addr ? NetMsgType::MNBROADCAST2 : NetMsgType::MNBROADCAST;
-            connman->PushMessage(pfrom, msgMaker.Make(msgType, ss));
+            ss << mnodeman.mapSeenMasternodeBroadcast[inv.hash];
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNBROADCAST, ss));
             return true;
         }
     }
 
-    // !TODO: remove when transition to DMN is complete
-    if (inv.type == MSG_MASTERNODE_PING && !deterministicMNManager->LegacyMNObsolete()) {
+    if (inv.type == MSG_MASTERNODE_PING) {
         if (mnodeman.mapSeenMasternodePing.count(inv.hash)) {
             CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
             ss.reserve(1000);
             ss << mnodeman.mapSeenMasternodePing[inv.hash];
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::MNPING, ss));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNPING, ss));
             return true;
         }
     }
@@ -936,7 +835,7 @@ bool static PushTierTwoGetDataRequest(const CInv& inv,
     return false;
 }
 
-void static ProcessGetBlockData(CNode* pfrom, const CInv& inv, CConnman* connman, const std::atomic<bool>& interruptMsgProc)
+void static ProcessGetBlockData(CNode* pfrom, const CInv& inv, CConnman& connman, const std::atomic<bool>& interruptMsgProc)
 {
     LOCK(cs_main);
     CNetMsgMaker msgMaker(pfrom->GetSendVersion());
@@ -964,7 +863,7 @@ void static ProcessGetBlockData(CNode* pfrom, const CInv& inv, CConnman* connman
         if (!ReadBlockFromDisk(block, (*mi).second))
             assert(!"cannot load block from disk");
         if (inv.type == MSG_BLOCK)
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::BLOCK, block));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::BLOCK, block));
         else // MSG_FILTERED_BLOCK)
         {
             bool send_ = false;
@@ -977,7 +876,7 @@ void static ProcessGetBlockData(CNode* pfrom, const CInv& inv, CConnman* connman
                 }
             }
             if (send_) {
-                connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::MERKLEBLOCK, merkleBlock));
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MERKLEBLOCK, merkleBlock));
                 // CMerkleBlock just contains hashes, so also push any transactions in the block the client did not see
                 // This avoids hurting performance by pointlessly requiring a round-trip
                 // Note that there is currently no way for a node to request any single transactions we didnt send here -
@@ -985,7 +884,7 @@ void static ProcessGetBlockData(CNode* pfrom, const CInv& inv, CConnman* connman
                 // Thus, the protocol spec specified allows for us to provide duplicate txn here,
                 // however we MUST always provide at least what the remote peer needs
                 for (std::pair<unsigned int, uint256>& pair : merkleBlock.vMatchedTxn)
-                    connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::TX, *block.vtx[pair.first]));
+                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::TX, *block.vtx[pair.first]));
             }
             // else
             // no response
@@ -998,7 +897,7 @@ void static ProcessGetBlockData(CNode* pfrom, const CInv& inv, CConnman* connman
             // wait for other stuff first.
             std::vector<CInv> vInv;
             vInv.emplace_back(MSG_BLOCK, chainActive.Tip()->GetBlockHash());
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::INV, vInv));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::INV, vInv));
             pfrom->hashContinue.SetNull();
         }
     }
@@ -1017,7 +916,7 @@ bool static IsTierTwoInventoryTypeKnown(int type)
            type == MSG_MASTERNODE_PING;
 }
 
-void static ProcessGetData(CNode* pfrom, CConnman* connman, const std::atomic<bool>& interruptMsgProc)
+void static ProcessGetData(CNode* pfrom, CConnman& connman, const std::atomic<bool>& interruptMsgProc)
 {
     AssertLockNotHeld(cs_main);
 
@@ -1026,7 +925,6 @@ void static ProcessGetData(CNode* pfrom, CConnman* connman, const std::atomic<bo
     CNetMsgMaker msgMaker(pfrom->GetSendVersion());
     {
         LOCK(cs_main);
-        int chainHeight = chainActive.Height();
 
         while (it != pfrom->vRecvGetData.end() && (it->type == MSG_TX || IsTierTwoInventoryTypeKnown(it->type))) {
             if (interruptMsgProc)
@@ -1046,14 +944,14 @@ void static ProcessGetData(CNode* pfrom, CConnman* connman, const std::atomic<bo
                     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
                     ss.reserve(1000);
                     ss << *txinfo.tx;
-                    connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::TX, ss));
+                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::TX, ss));
                     pushed = true;
                 }
             }
 
             if (!pushed) {
                 // Now check if it's a tier two data request and push it.
-                pushed = PushTierTwoGetDataRequest(inv, pfrom, connman, msgMaker, chainHeight);
+                pushed = PushTierTwoGetDataRequest(inv, pfrom, connman, msgMaker);
             }
 
             if (!pushed) {
@@ -1082,12 +980,46 @@ void static ProcessGetData(CNode* pfrom, CConnman* connman, const std::atomic<bo
         // do that because they want to know about (and store and rebroadcast and
         // risk analyze) the dependencies of transactions relevant to them, without
         // having to download the entire memory pool.
-        connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::NOTFOUND, vNotFound));
+        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::NOTFOUND, vNotFound));
+    }
+}
+
+static void CheckBlockSpam(CValidationState& state, CNode* pfrom, const uint256& hashBlock)
+{
+    // Block spam filtering
+    if (!gArgs.GetBoolArg("-blockspamfilter", DEFAULT_BLOCK_SPAM_FILTER)) {
+        return;
+    }
+    CNodeState *nodestate = State(pfrom->GetId());
+    if(!nodestate) {
+        return;
+    }
+
+    const auto it = mapBlockIndex.find(hashBlock);
+    if (it == mapBlockIndex.end()) {
+        return;
+    }
+
+    nodestate->nodeBlocks.onBlockReceived(it->second->nHeight);
+    bool nodeStatus = true;
+    // UpdateState will return false if the node is attacking us or update the score and return true.
+    nodeStatus = nodestate->nodeBlocks.updateState(state, nodeStatus);
+    int nDoS = 0;
+    if (state.IsInvalid(nDoS)) {
+        if (nDoS > 0) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), nDoS);
+        }
+        nodeStatus = false;
+    }
+
+    if (!nodeStatus) {
+        LogPrintf("Block spam protection: %s\n", hashBlock.ToString());
     }
 }
 
 bool fRequestedSporksIDB = false;
-bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vRecv, int64_t nTimeReceived, CConnman* connman, std::atomic<bool>& interruptMsgProc)
+bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vRecv, int64_t nTimeReceived, CConnman& connman, std::atomic<bool>& interruptMsgProc)
 {
     LogPrint(BCLog::NET, "received: %s (%u bytes) peer=%d\n", SanitizeString(strCommand), vRecv.size(), pfrom->id);
     if (gArgs.IsArgSet("-dropmessagestest") && GetRand(gArgs.GetArg("-dropmessagestest", 0)) == 0) {
@@ -1098,6 +1030,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
     if (strCommand == NetMsgType::VERSION) {
         // Each connection can only send one version message
         if (pfrom->nVersion != 0) {
+            connman.PushMessage(pfrom, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::REJECT, strCommand, REJECT_DUPLICATE, std::string("Duplicate version message")));
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 1);
             return false;
@@ -1118,17 +1051,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         nSendVersion = std::min(nVersion, PROTOCOL_VERSION);
         nServices = ServiceFlags(nServiceInt);
         if (!pfrom->fInbound) {
-            connman->SetServices(pfrom->addr, nServices);
+            connman.SetServices(pfrom->addr, nServices);
         }
         if (pfrom->nServicesExpected & ~nServices) {
             LogPrint(BCLog::NET, "peer=%d does not offer the expected services (%08x offered, %08x expected); disconnecting\n", pfrom->id, nServices, pfrom->nServicesExpected);
+            connman.PushMessage(pfrom, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::REJECT, strCommand, REJECT_NONSTANDARD,
+                               strprintf("Expected to offer services %08x", pfrom->nServicesExpected)));
             pfrom->fDisconnect = true;
             return false;
         }
 
-        if (pfrom->DisconnectOldProtocol(nVersion, ActiveProtocol())) {
+        if (pfrom->DisconnectOldProtocol(nVersion, ActiveProtocol(), strCommand))
             return false;
-        }
 
         if (nVersion == 10300)
             nVersion = 300;
@@ -1143,7 +1077,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         // Disconnect if we connected to ourself
-        if (pfrom->fInbound && !connman->CheckIncomingNonce(nNonce)) {
+        if (pfrom->fInbound && !connman.CheckIncomingNonce(nNonce)) {
             LogPrintf("connected to self at %s, disconnecting\n", pfrom->addr.ToString());
             pfrom->fDisconnect = true;
             return true;
@@ -1157,18 +1091,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         if (pfrom->fInbound)
             PushNodeVersion(pfrom, connman, GetAdjustedTime());
 
-        CNetMsgMaker msg_maker(INIT_PROTO_VERSION);
-
-        if (nVersion >= 70923) {
-            // BIP155 defines addrv2 and sendaddrv2 for all protocol versions, but some
-            // implementations reject messages they don't know. As a courtesy, don't send
-            // it to nodes with a version before 70923 (v5.2.99), as no software is known to support
-            // BIP155 that doesn't announce at least that protocol version number.
-
-            connman->PushMessage(pfrom, msg_maker.Make(NetMsgType::SENDADDRV2));
-        }
-
-        connman->PushMessage(pfrom, msg_maker.Make(NetMsgType::VERACK));
+        connman.PushMessage(pfrom, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::VERACK));
 
         pfrom->nServices = nServices;
         pfrom->SetAddrLocal(addrMe);
@@ -1215,9 +1138,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
 
             // Get recent addresses
-            connman->PushMessage(pfrom, CNetMsgMaker(nSendVersion).Make(NetMsgType::GETADDR));
-            pfrom->fGetAddr = true;
-            connman->MarkAddressGood(pfrom->addr);
+            if (pfrom->fOneShot || pfrom->nVersion >= CADDR_TIME_VERSION || connman.GetAddressCount() < 1000) {
+                connman.PushMessage(pfrom, CNetMsgMaker(nSendVersion).Make(NetMsgType::GETADDR));
+                pfrom->fGetAddr = true;
+            }
+            connman.MarkAddressGood(pfrom->addr);
         }
 
         std::string remoteAddr;
@@ -1232,14 +1157,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         int64_t nTimeOffset = nTime - GetTime();
         pfrom->nTimeOffset = nTimeOffset;
         const int nTimeSlotLength = Params().GetConsensus().nTimeSlotLength;
-        if (abs64(nTimeOffset) < 2 * nTimeSlotLength) {
-            AddTimeData(pfrom->addr, nTimeOffset, nTimeSlotLength);
-        } else {
-            LogPrintf("timeOffset (%d seconds) too large. Disconnecting node %s\n",
-                    nTimeOffset, pfrom->addr.ToString().c_str());
-            pfrom->fDisconnect = true;
-            CheckOffsetDisconnectedPeers(pfrom->addr);
-        }
+
+        AddTimeData(pfrom->addr, nTimeOffset, nTimeSlotLength);
 
         // Feeler connections exist only to verify if address is online.
         if (pfrom->fFeeler) {
@@ -1247,17 +1166,17 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             pfrom->fDisconnect = true;
         }
 
-        // PIVX: We use certain sporks during IBD, so check to see if they are
+        // KFX: We use certain sporks during IBD, so check to see if they are
         // available. If not, ask the first peer connected for them.
         // TODO: Move this to an instant broadcast of the sporks.
         bool fMissingSporks = !pSporkDB->SporkExists(SPORK_14_NEW_PROTOCOL_ENFORCEMENT) ||
                               !pSporkDB->SporkExists(SPORK_15_NEW_PROTOCOL_ENFORCEMENT_2) ||
-                              !pSporkDB->SporkExists(SPORK_19_COLDSTAKING_MAINTENANCE) ||
-                              !pSporkDB->SporkExists(SPORK_20_SAPLING_MAINTENANCE);
+                              !pSporkDB->SporkExists(SPORK_16_ZEROCOIN_MAINTENANCE_MODE) ||
+                              !pSporkDB->SporkExists(SPORK_23_SAPLING_MAINTENANCE);
 
         if (fMissingSporks || !fRequestedSporksIDB){
             LogPrintf("asking peer for sporks\n");
-            connman->PushMessage(pfrom, CNetMsgMaker(nSendVersion).Make(NetMsgType::GETSPORKS));
+            connman.PushMessage(pfrom, CNetMsgMaker(nSendVersion).Make(NetMsgType::GETSPORKS));
             fRequestedSporksIDB = true;
         }
 
@@ -1290,22 +1209,17 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
     }
 
 
-    else if (strCommand == NetMsgType::ADDR || strCommand == NetMsgType::ADDRV2) {
-        int stream_version = vRecv.GetVersion();
-        if (strCommand == NetMsgType::ADDRV2) {
-            // Add ADDRV2_FORMAT to the version so that the CNetAddr and CAddress
-            // unserialize methods know that an address in v2 format is coming.
-            stream_version |= ADDRV2_FORMAT;
-        }
-
-        OverrideStream<CDataStream> s(&vRecv, vRecv.GetType(), stream_version);
+    else if (strCommand == NetMsgType::ADDR) {
         std::vector<CAddress> vAddr;
-        s >> vAddr;
+        vRecv >> vAddr;
 
-        if (vAddr.size() > MAX_ADDR_TO_SEND) {
+        // Don't want addr from older versions unless seeding
+        if (pfrom->nVersion < CADDR_TIME_VERSION && connman.GetAddressCount() > 1000)
+            return true;
+        if (vAddr.size() > 1000) {
             LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 20, strprintf("%s message size = %u", strCommand, vAddr.size()));
-            return false;
+            Misbehaving(pfrom->GetId(), 20);
+            return error("message addr size() = %u", vAddr.size());
         }
 
         // Store the new addresses
@@ -1331,25 +1245,21 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (fReachable)
                 vAddrOk.push_back(addr);
         }
-        connman->AddNewAddresses(vAddrOk, pfrom->addr, 2 * 60 * 60);
+        connman.AddNewAddresses(vAddrOk, pfrom->addr, 2 * 60 * 60);
         if (vAddr.size() < 1000)
             pfrom->fGetAddr = false;
         if (pfrom->fOneShot)
             pfrom->fDisconnect = true;
     }
 
-    else if (strCommand == NetMsgType::SENDADDRV2) {
-            pfrom->m_wants_addrv2 = true;
-            return true;
-    }
 
     else if (strCommand == NetMsgType::INV) {
         std::vector<CInv> vInv;
         vRecv >> vInv;
         if (vInv.size() > MAX_INV_SZ) {
             LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 20, strprintf("message inv size() = %u", vInv.size()));
-            return false;
+            Misbehaving(pfrom->GetId(), 20);
+            return error("message inv size() = %u", vInv.size());
         }
 
         LOCK(cs_main);
@@ -1364,8 +1274,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
             // Reject deprecated messages
             if (inv.type == MSG_TXLOCK_REQUEST || inv.type == MSG_TXLOCK_VOTE) {
-                Misbehaving(pfrom->GetId(), 100, strprintf("message inv deprecated %d", (int)inv.type));
-                return false;
+                Misbehaving(pfrom->GetId(), 20);
+                return error("message inv deprecated %d", (int)inv.type);
             }
 
             pfrom->AddInventoryKnown(inv);
@@ -1389,7 +1299,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (!vToFetch.empty())
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::GETDATA, vToFetch));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETDATA, vToFetch));
     }
 
 
@@ -1398,8 +1308,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         vRecv >> vInv;
         if (vInv.size() > MAX_INV_SZ) {
             LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 20, strprintf("message getdata size() = %u", vInv.size()));
-            return false;
+            Misbehaving(pfrom->GetId(), 20);
+            return error("message getdata size() = %u", vInv.size());
         }
 
         if (vInv.size() != 1)
@@ -1490,12 +1400,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (--nLimit <= 0 || pindex->GetBlockHash() == hashStop)
                 break;
         }
-        connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
+        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
     }
 
 
     else if (strCommand == NetMsgType::TX) {
-        std::deque<COutPoint> vWorkQueue;
+        std::vector<uint256> vWorkQueue;
         std::vector<uint256> vEraseQueue;
         CTransaction tx(deserialize, vRecv);
         CTransactionRef ptx = MakeTransactionRef(tx);
@@ -1503,27 +1413,19 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         CInv inv(MSG_TX, tx.GetHash());
         pfrom->AddInventoryKnown(inv);
 
-        LOCK2(cs_main, g_cs_orphans);
+        LOCK(cs_main);
 
         bool ignoreFees = false;
         bool fMissingInputs = false;
+        bool fMissingZerocoinInputs = false;
         CValidationState state;
 
-        pfrom->setAskFor.erase(inv.hash);
         mapAlreadyAskedFor.erase(inv);
 
-        if (ptx->ContainsZerocoins()) {
-            // Don't even try to check zerocoins at all.
-            Misbehaving(pfrom->GetId(), 100, strprintf("received a zc transaction"));
-            return false;
-        }
-
-        if (AcceptToMemoryPool(mempool, state, ptx, true, &fMissingInputs, false, ignoreFees)) {
-            mempool.check(pcoinsTip.get());
+        if (!tx.HasZerocoinSpendInputs() && AcceptToMemoryPool(mempool, state, ptx, true, &fMissingInputs, false, ignoreFees)) {
+            mempool.check(pcoinsTip);
             RelayTransaction(tx, connman);
-            for (unsigned int i = 0; i < tx.vout.size(); i++) {
-                vWorkQueue.emplace_back(inv.hash, i);
-            }
+            vWorkQueue.push_back(inv.hash);
 
             LogPrint(BCLog::MEMPOOL, "%s : peer=%d %s : accepted %s (poolsz %u txn, %u kB)\n",
                     __func__, pfrom->id, pfrom->cleanSubVer, tx.GetHash().ToString(),
@@ -1531,17 +1433,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
             // Recursively process any orphan transactions that depended on this one
             std::set<NodeId> setMisbehaving;
-            while (!vWorkQueue.empty()) {
-                auto itByPrev = mapOrphanTransactionsByPrev.find(vWorkQueue.front());
-                vWorkQueue.pop_front();
+            for(unsigned int i = 0; i < vWorkQueue.size(); i++) {
+                std::map<uint256, std::set<uint256> >::iterator itByPrev = mapOrphanTransactionsByPrev.find(vWorkQueue[i]);
                 if(itByPrev == mapOrphanTransactionsByPrev.end())
                     continue;
-                for (auto mi = itByPrev->second.begin();
+                for(std::set<uint256>::iterator mi = itByPrev->second.begin();
                     mi != itByPrev->second.end();
                     ++mi) {
-                    const CTransactionRef& orphanTx = (*mi)->second.tx;
-                    const uint256& orphanHash = orphanTx->GetHash();
-                    NodeId fromPeer = (*mi)->second.fromPeer;
+                    const uint256 &orphanHash = *mi;
+                    const auto &orphanTx = mapOrphanTransactions[orphanHash].tx;
+                    NodeId fromPeer = mapOrphanTransactions[orphanHash].fromPeer;
                     bool fMissingInputs2 = false;
                     // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan
                     // resolution (that is, feeding people an invalid transaction based on LegitTxX in order to get
@@ -1549,16 +1450,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                     CValidationState stateDummy;
 
 
-                    if (setMisbehaving.count(fromPeer))
+                    if(setMisbehaving.count(fromPeer))
                         continue;
-                    if (AcceptToMemoryPool(mempool, stateDummy, orphanTx, true, &fMissingInputs2)) {
+                    if(AcceptToMemoryPool(mempool, stateDummy, orphanTx, true, &fMissingInputs2)) {
                         LogPrint(BCLog::MEMPOOL, "   accepted orphan tx %s\n", orphanHash.ToString());
                         RelayTransaction(*orphanTx, connman);
-                        for (unsigned int i = 0; i < orphanTx->vout.size(); i++) {
-                            vWorkQueue.emplace_back(orphanHash, i);
-                        }
+                        vWorkQueue.push_back(orphanHash);
                         vEraseQueue.push_back(orphanHash);
-                    } else if (!fMissingInputs2) {
+                    } else if(!fMissingInputs2) {
                         int nDos = 0;
                         if(stateDummy.IsInvalid(nDos) && nDos > 0) {
                             // Punish peer that gave us an invalid orphan tx
@@ -1567,53 +1466,34 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                             LogPrint(BCLog::MEMPOOL, "   invalid orphan tx %s\n", orphanHash.ToString());
                         }
                         // Has inputs but not accepted to mempool
-                        // Probably non-standard or insufficient fee
+                        // Probably non-standard or insufficient fee/priority
                         LogPrint(BCLog::MEMPOOL, "   removed orphan tx %s\n", orphanHash.ToString());
                         vEraseQueue.push_back(orphanHash);
                         assert(recentRejects);
                         recentRejects->insert(orphanHash);
                     }
-                    mempool.check(pcoinsTip.get());
+                    mempool.check(pcoinsTip);
                 }
             }
 
             for (uint256& hash : vEraseQueue) EraseOrphanTx(hash);
 
+        } else if (tx.HasZerocoinSpendInputs() && AcceptToMemoryPool(mempool, state, ptx, true, &fMissingZerocoinInputs, false, false, ignoreFees)) {
+            //Presstab: ZCoin has a bunch of code commented out here. Is this something that should have more going on?
+            //Also there is nothing that handles fMissingZerocoinInputs. Does there need to be?
+            RelayTransaction(tx, connman);
+            LogPrint(BCLog::MEMPOOL, "AcceptToMemoryPool: Zerocoinspend peer=%d %s : accepted %s (poolsz %u)\n",
+                     pfrom->id, pfrom->cleanSubVer,
+                     tx.GetHash().ToString(),
+                     mempool.mapTx.size());
         } else if (fMissingInputs) {
-            bool fRejectedParents = false; // It may be the case that the orphans parents have all been rejected
+            AddOrphanTx(ptx, pfrom->GetId());
 
-            // Deduplicate parent txids, so that we don't have to loop over
-            // the same parent txid more than once down below.
-            std::vector<uint256> unique_parents;
-            unique_parents.reserve(tx.vin.size());
-            for (const CTxIn& txin : ptx->vin) {
-                // We start with all parents, and then remove duplicates below.
-                unique_parents.emplace_back(txin.prevout.hash);
-            }
-            std::sort(unique_parents.begin(), unique_parents.end());
-            unique_parents.erase(std::unique(unique_parents.begin(), unique_parents.end()), unique_parents.end());
-            for (const uint256& parent_txid : unique_parents) {
-                if (recentRejects->contains(parent_txid)) {
-                    fRejectedParents = true;
-                    break;
-                }
-            }
-            if (!fRejectedParents) {
-                for (const uint256& parent_txid : unique_parents) {
-                    CInv _inv(MSG_TX, parent_txid);
-                    pfrom->AddInventoryKnown(_inv);
-                    if (!AlreadyHave(_inv)) pfrom->AskFor(_inv);
-                }
-                AddOrphanTx(ptx, pfrom->GetId());
-
-                // DoS prevention: do not allow mapOrphanTransactions to grow unbounded
-                unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, gArgs.GetArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
-                unsigned int nEvicted = LimitOrphanTxSize(nMaxOrphanTx);
-                if (nEvicted > 0)
-                    LogPrint(BCLog::MEMPOOL, "mapOrphan overflow, removed %u tx\n", nEvicted);
-            } else {
-                LogPrint(BCLog::MEMPOOL, "not keeping orphan with rejected parents %s\n",tx.GetHash().ToString());
-            }
+            // DoS prevention: do not allow mapOrphanTransactions to grow unbounded
+            unsigned int nMaxOrphanTx = (unsigned int)std::max((int64_t)0, gArgs.GetArg("-maxorphantx", DEFAULT_MAX_ORPHAN_TRANSACTIONS));
+            unsigned int nEvicted = LimitOrphanTxSize(nMaxOrphanTx);
+            if (nEvicted > 0)
+                LogPrint(BCLog::MEMPOOL, "mapOrphan overflow, removed %u tx\n", nEvicted);
         } else {
             // AcceptToMemoryPool() returned false, possibly because the tx is
             // already in the mempool; if the tx isn't in the mempool that
@@ -1639,9 +1519,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             LogPrint(BCLog::MEMPOOLREJ, "%s from peer=%d %s was not accepted into the memory pool: %s\n", tx.GetHash().ToString(),
                 pfrom->id, pfrom->cleanSubVer,
                 FormatStateMessage(state));
-            if (nDoS > 0) {
+            if (state.GetRejectCode() < REJECT_INTERNAL) // Never send AcceptToMemoryPool's internal codes over P2P
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, state.GetRejectCode(),
+                        state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
+            if (nDoS > 0)
                 Misbehaving(pfrom->GetId(), nDoS);
-            }
         }
     }
 
@@ -1653,8 +1535,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         unsigned int nCount = ReadCompactSize(vRecv);
         if (nCount > MAX_HEADERS_RESULTS) {
             LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 20, strprintf("headers message size = %u", nCount));
-            return false;
+            Misbehaving(pfrom->GetId(), 20);
+            return error("headers message size = %u", nCount);
         }
         headers.resize(nCount);
         for (unsigned int n = 0; n < nCount; n++) {
@@ -1672,8 +1554,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         for (const CBlockHeader& header : headers) {
             CValidationState state;
             if (pindexLast != NULL && header.hashPrevBlock != pindexLast->GetBlockHash()) {
-                Misbehaving(pfrom->GetId(), 20, "non-continuous headers sequence");
-                return false;
+                Misbehaving(pfrom->GetId(), 20);
+                return error("non-continuous headers sequence");
             }
 
             /*TODO: this has a CBlock cast on it so that it will compile. There should be a solution for this
@@ -1682,12 +1564,10 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!AcceptBlockHeader((CBlock)header, state, &pindexLast)) {
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
-                    if (nDoS > 0) {
-                        Misbehaving(pfrom->GetId(), nDoS, "invalid header received");
-                    } else {
-                        LogPrint(BCLog::NET, "peer=%d: invalid header received\n", pfrom->GetId());
-                    }
-                    return false;
+                    if (nDoS > 0)
+                        Misbehaving(pfrom->GetId(), nDoS);
+                    std::string strError = "invalid header received " + header.GetHash().ToString();
+                    return error(strError.c_str());
                 }
             }
         }
@@ -1700,7 +1580,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             // TODO: optimize: if pindexLast is an ancestor of chainActive.Tip or pindexBestHeader, continue
             // from there instead.
             LogPrintf("more getheaders (%d) to end to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
-            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexLast), UINT256_ZERO));
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexLast), UINT256_ZERO));
         }
     }
 
@@ -1717,26 +1597,36 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             CBlockLocator locator = WITH_LOCK(cs_main, return chainActive.GetLocator(););
             if (find(pfrom->vBlockRequested.begin(), pfrom->vBlockRequested.end(), hashBlock) != pfrom->vBlockRequested.end()) {
                 // we already asked for this block, so lets work backwards and ask for the previous block
-                connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKS, locator, pblock->hashPrevBlock));
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKS, locator, pblock->hashPrevBlock));
                 pfrom->vBlockRequested.emplace_back(pblock->hashPrevBlock);
             } else {
                 // ask to sync to this block
-                connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKS, locator, hashBlock));
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKS, locator, hashBlock));
                 pfrom->vBlockRequested.emplace_back(hashBlock);
             }
         } else {
             pfrom->AddInventoryKnown(inv);
+            CValidationState state;
             if (!mapBlockIndex.count(hashBlock)) {
-                {
-                    LOCK(cs_main);
-                    MarkBlockAsReceived(hashBlock);
-                    mapBlockSource.emplace(hashBlock, pfrom->GetId());
+                WITH_LOCK(cs_main, MarkBlockAsReceived(hashBlock); );
+                bool fAccepted = true;
+                ProcessNewBlock(state, pfrom, pblock, nullptr, &fAccepted);
+                if (!fAccepted) {
+                    CheckBlockSpam(state, pfrom, hashBlock);
                 }
-                ProcessNewBlock(pblock, nullptr);
-
-                // Disconnect node if its running an old protocol version,
-                // used during upgrades, when the node is already connected.
-                pfrom->DisconnectOldProtocol(pfrom->nVersion, ActiveProtocol());
+                WITH_LOCK(cs_main, mapBlockSource.emplace(hashBlock, pfrom->GetId()); );
+                int nDoS;
+                if(state.IsInvalid(nDoS)) {
+                    assert (state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
+                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, state.GetRejectCode(),
+                        state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
+                    if(nDoS > 0) {
+                        TRY_LOCK(cs_main, lockMain);
+                        if(lockMain) Misbehaving(pfrom->GetId(), nDoS);
+                    }
+                }
+                //disconnect this node if its old protocol version
+                pfrom->DisconnectOldProtocol(pfrom->nVersion, ActiveProtocol(), strCommand);
             } else {
                 LogPrint(BCLog::NET, "%s : Already processed block %s, skipping ProcessNewBlock()\n", __func__, pblock->GetHash().GetHex());
             }
@@ -1750,7 +1640,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
     // getaddr message mitigates the attack.
     else if ((strCommand == NetMsgType::GETADDR) && (pfrom->fInbound)) {
         pfrom->vAddrToSend.clear();
-        std::vector<CAddress> vAddr = connman->GetAddresses(MAX_ADDR_TO_SEND, MAX_PCT_ADDR_TO_SEND, /* network */ nullopt);
+        std::vector<CAddress> vAddr = connman.GetAddresses();
         FastRandomContext insecure_rand;
         for (const CAddress& addr : vAddr)
             pfrom->PushAddress(addr, insecure_rand);
@@ -1772,20 +1662,22 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
 
     else if (strCommand == NetMsgType::PING) {
-        uint64_t nonce = 0;
-        vRecv >> nonce;
-        // Echo the message back with the nonce. This allows for two useful features:
-        //
-        // 1) A remote node can quickly check if the connection is operational
-        // 2) Remote nodes can measure the latency of the network thread. If this node
-        //    is overloaded it won't respond to pings quickly and the remote node can
-        //    avoid sending us more work, like chain download requests.
-        //
-        // The nonce stops the remote getting confused between different pings: without
-        // it, if the remote node sends a ping once per second and this node takes 5
-        // seconds to respond to each, the 5th ping the remote sends would appear to
-        // return very quickly.
-        connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::PONG, nonce));
+        if (pfrom->nVersion > BIP0031_VERSION) {
+            uint64_t nonce = 0;
+            vRecv >> nonce;
+            // Echo the message back with the nonce. This allows for two useful features:
+            //
+            // 1) A remote node can quickly check if the connection is operational
+            // 2) Remote nodes can measure the latency of the network thread. If this node
+            //    is overloaded it won't respond to pings quickly and the remote node can
+            //    avoid sending us more work, like chain download requests.
+            //
+            // The nonce stops the remote getting confused between different pings: without
+            // it, if the remote node sends a ping once per second and this node takes 5
+            // seconds to respond to each, the 5th ping the remote sends would appear to
+            // return very quickly.
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::PONG, nonce));
+        }
     }
 
 
@@ -1849,9 +1741,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
              (strCommand == NetMsgType::FILTERLOAD ||
                  strCommand == NetMsgType::FILTERADD ||
                  strCommand == NetMsgType::FILTERCLEAR)) {
+        LogPrintf("bloom message=%s\n", strCommand);
         LOCK(cs_main);
-        Misbehaving(pfrom->GetId(), 100, "banning, filter received.");
-        return false;
+        Misbehaving(pfrom->GetId(), 100);
     }
 
     else if (strCommand == NetMsgType::FILTERLOAD) {
@@ -1865,7 +1757,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 100);
         } else {
-            pfrom->pfilter.reset(new CBloomFilter(filter));
+            delete pfrom->pfilter;
+            pfrom->pfilter = new CBloomFilter(filter);
             pfrom->pfilter->UpdateEmptyFull();
             pfrom->fRelayTxes = true;
         }
@@ -1898,17 +1791,46 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
     else if (strCommand == NetMsgType::FILTERCLEAR) {
         LOCK(pfrom->cs_filter);
-        pfrom->pfilter.reset(new CBloomFilter());
+        delete pfrom->pfilter;
+        pfrom->pfilter = new CBloomFilter();
         pfrom->fRelayTxes = true;
     }
 
-    else {
-        // Tier two msg type search
-        const std::vector<std::string>& allMessages = getTierTwoNetMessageTypes();
-        if (std::find(allMessages.begin(), allMessages.end(), strCommand) != allMessages.end()) {
+
+    else if (strCommand == NetMsgType::REJECT) {
+        try {
+            std::string strMsg;
+            unsigned char ccode;
+            std::string strReason;
+            vRecv >> LIMITED_STRING(strMsg, CMessageHeader::COMMAND_SIZE) >> ccode >> LIMITED_STRING(strReason, MAX_REJECT_MESSAGE_LENGTH);
+
+            std::ostringstream ss;
+            ss << strMsg << " code " << itostr(ccode) << ": " << strReason;
+
+            if (strMsg == NetMsgType::BLOCK || strMsg == NetMsgType::TX) {
+                uint256 hash;
+                vRecv >> hash;
+                ss << ": hash " << hash.ToString();
+            }
+            LogPrint(BCLog::NET, "Reject %s\n", SanitizeString(ss.str()));
+        } catch (const std::ios_base::failure& e) {
+            // Avoid feedback loops by preventing reject messages from triggering a new reject message.
+            LogPrint(BCLog::NET, "Unparseable reject message received\n");
+        }
+    } else {
+        bool found = false;
+        const std::vector<std::string>& allMessages = getAllNetMessageTypes();
+        for (const std::string& msg : allMessages) {
+            if (msg == strCommand) {
+                found = true;
+                break;
+            }
+        }
+
+        if (found) {
             // Check if the dispatcher can process this message first. If not, try going with the old flow.
             if (!masternodeSync.MessageDispatcher(pfrom, strCommand, vRecv)) {
-                // Probably one the extensions
+                //probably one the extensions
                 mnodeman.ProcessMessage(pfrom, strCommand, vRecv);
                 g_budgetman.ProcessMessage(pfrom, strCommand, vRecv);
                 masternodePayments.ProcessMessageMasternodePayments(pfrom, strCommand, vRecv);
@@ -1925,7 +1847,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 }
 
 
-bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& interruptMsgProc)
+bool ProcessMessages(CNode* pfrom, CConnman& connman, std::atomic<bool>& interruptMsgProc)
 {
     // Message format
     //  (4) message start
@@ -1957,7 +1879,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         // Just take one message
         msgs.splice(msgs.begin(), pfrom->vProcessMsg, pfrom->vProcessMsg.begin());
         pfrom->nProcessQueueSize -= msgs.front().vRecv.size() + CMessageHeader::HEADER_SIZE;
-        pfrom->fPauseRecv = pfrom->nProcessQueueSize > connman->GetReceiveFloodSize();
+        pfrom->fPauseRecv = pfrom->nProcessQueueSize > connman.GetReceiveFloodSize();
         fMoreWork = !pfrom->vProcessMsg.empty();
     }
     CNetMessage& msg(msgs.front());
@@ -1973,7 +1895,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
     // Read header
     CMessageHeader& hdr = msg.hdr;
     if (!hdr.IsValid(Params().MessageStart())) {
-        LogPrint(BCLog::NET, "PROCESSMESSAGE: ERRORS IN HEADER '%s' peer=%d\n", SanitizeString(hdr.GetCommand()), pfrom->id);
+        LogPrint(BCLog::NET, "PROCESSMESSAGE: ERRORS IN HEADER %s peer=%d\n", SanitizeString(hdr.GetCommand()), pfrom->id);
         return fMoreWork;
     }
     std::string strCommand = hdr.GetCommand();
@@ -1981,17 +1903,17 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
     // Message size
     unsigned int nMessageSize = hdr.nMessageSize;
 
-    // Checksum
-    CDataStream& vRecv = msg.vRecv;
-    uint256 hash = msg.GetMessageHash();
-    if (memcmp(hash.begin(), hdr.pchChecksum, CMessageHeader::CHECKSUM_SIZE) != 0)
-    {
-        LogPrint(BCLog::NET, "%s(%s, %u bytes): CHECKSUM ERROR expected %s was %s\n", __func__,
-           SanitizeString(strCommand), nMessageSize,
-           HexStr(Span<uint8_t>(hash.begin(), hash.begin() + CMessageHeader::CHECKSUM_SIZE)),
-           HexStr(hdr.pchChecksum));
-        return fMoreWork;
-    }
+        // Checksum
+        CDataStream& vRecv = msg.vRecv;
+        uint256 hash = Hash(vRecv.begin(), vRecv.begin() + nMessageSize);
+        if (memcmp(hash.begin(), hdr.pchChecksum, CMessageHeader::CHECKSUM_SIZE) != 0)
+        {
+            LogPrint(BCLog::NET, "%s(%s, %u bytes): CHECKSUM ERROR expected %s was %s\n", __func__,
+               SanitizeString(strCommand), nMessageSize,
+               HexStr(hash.begin(), hash.begin()+CMessageHeader::CHECKSUM_SIZE),
+               HexStr(hdr.pchChecksum, hdr.pchChecksum+CMessageHeader::CHECKSUM_SIZE));
+            return fMoreWork;
+        }
 
     // Process message
     bool fRet = false;
@@ -2002,6 +1924,7 @@ bool PeerLogicValidation::ProcessMessages(CNode* pfrom, std::atomic<bool>& inter
         if (!pfrom->vRecvGetData.empty())
             fMoreWork = true;
     } catch (const std::ios_base::failure& e) {
+        connman.PushMessage(pfrom, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::REJECT, strCommand, REJECT_MALFORMED, std::string("error parsing message")));
         if (strstr(e.what(), "end of data")) {
             // Allow exceptions from under-length message on vRecv
             LogPrint(BCLog::NET, "ProcessMessages(%s, %u bytes): Exception '%s' caught, normally caused by a message being shorter than its stated length\n", SanitizeString(strCommand), nMessageSize, e.what());
@@ -2040,7 +1963,7 @@ public:
     }
 };
 
-bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptMsgProc)
+bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsgProc)
 {
     {
         // Don't send anything until the version handshake is complete
@@ -2069,8 +1992,14 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
             }
             pto->fPingQueued = false;
             pto->nPingUsecStart = GetTimeMicros();
-            pto->nPingNonceSent = nonce;
-            connman->PushMessage(pto, msgMaker.Make(NetMsgType::PING, nonce));
+            if (pto->nVersion > BIP0031_VERSION) {
+                pto->nPingNonceSent = nonce;
+                connman.PushMessage(pto, msgMaker.Make(NetMsgType::PING, nonce));
+            } else {
+                // Peer is too old to support ping command with nonce, pong will never arrive.
+                pto->nPingNonceSent = 0;
+                connman.PushMessage(pto, msgMaker.Make(NetMsgType::PING));
+            }
         }
 
         TRY_LOCK(cs_main, lockMain); // Acquire cs_main for IsInitialBlockDownload() and CNodeState()
@@ -2078,6 +2007,10 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
             return true;
 
         CNodeState& state = *State(pto->GetId());
+
+        for (const CBlockReject& reject : state.rejects)
+            connman.PushMessage(pto, msgMaker.Make(NetMsgType::REJECT, std::string(NetMsgType::BLOCK), reject.chRejectCode, reject.strRejectReason, reject.hashBlock));
+        state.rejects.clear();
 
         if (state.fShouldBan) {
             state.fShouldBan = false;
@@ -2088,7 +2021,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                 if (pto->addr.IsLocal())
                     LogPrintf("Warning: not banning local peer %s!\n", pto->addr.ToString());
                 else {
-                    connman->Ban(pto->addr, BanReasonNodeMisbehaving);
+                    connman.Ban(pto->addr, BanReasonNodeMisbehaving);
                 }
                 return true;
             }
@@ -2096,45 +2029,32 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
 
         // Address refresh broadcast
         int64_t nNow = GetTimeMicros();
-        auto current_time = GetTime<std::chrono::microseconds>();
-
-        if (!IsInitialBlockDownload() && pto->m_next_local_addr_send < current_time) {
+        if (!IsInitialBlockDownload() && pto->nNextLocalAddrSend < nNow) {
             AdvertiseLocal(pto);
-            pto->m_next_local_addr_send = PoissonNextSend(current_time, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
+            pto->nNextLocalAddrSend = PoissonNextSend(nNow, AVG_LOCAL_ADDRESS_BROADCAST_INTERVAL);
         }
 
         //
         // Message: addr
         //
-        if (pto->m_next_addr_send < current_time) {
-            pto->m_next_addr_send = PoissonNextSend(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
+        if (pto->nNextAddrSend < nNow) {
+            pto->nNextAddrSend = PoissonNextSend(nNow, AVG_ADDRESS_BROADCAST_INTERVAL);
             std::vector<CAddress> vAddr;
             vAddr.reserve(pto->vAddrToSend.size());
-
-            const char* msg_type;
-            int make_flags;
-            if (pto->m_wants_addrv2) {
-                msg_type = NetMsgType::ADDRV2;
-                make_flags = ADDRV2_FORMAT;
-            } else {
-                msg_type = NetMsgType::ADDR;
-                make_flags = 0;
-            }
-
             for (const CAddress& addr : pto->vAddrToSend) {
                 if (!pto->addrKnown.contains(addr.GetKey())) {
                     pto->addrKnown.insert(addr.GetKey());
                     vAddr.push_back(addr);
                     // receiver rejects addr messages larger than 1000
                     if (vAddr.size() >= 1000) {
-                        connman->PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
+                        connman.PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
                         vAddr.clear();
                     }
                 }
             }
             pto->vAddrToSend.clear();
             if (!vAddr.empty())
-                connman->PushMessage(pto, msgMaker.Make(make_flags, msg_type, vAddr));
+                connman.PushMessage(pto, msgMaker.Make(NetMsgType::ADDR, vAddr));
         }
 
         // Start block sync
@@ -2149,7 +2069,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                 //CBlockIndex *pindexStart = pindexBestHeader->pprev ? pindexBestHeader->pprev : pindexBestHeader;
                 //LogPrint(BCLog::NET, "initial getheaders (%d) to peer=%d (startheight:%d)\n", pindexStart->nHeight, pto->id, pto->nStartingHeight);
                 //pto->PushMessage(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexStart), UINT256_ZERO);
-                connman->PushMessage(pto, msgMaker.Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(chainActive.Tip()), UINT256_ZERO));
+                connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(chainActive.Tip()), UINT256_ZERO));
             }
         }
 
@@ -2157,7 +2077,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
         // Except during reindex, importing and IBD, when old wallet
         // transactions become unconfirmed and spams other nodes.
         if (!fReindex && !fImporting && !IsInitialBlockDownload()) {
-            GetMainSignals().Broadcast(connman);
+            GetMainSignals().Broadcast(&connman);
         }
 
         //
@@ -2167,13 +2087,13 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
         std::vector<CInv> vInvWait;
         {
             LOCK(pto->cs_inventory);
-            vInv.reserve(std::max<size_t>(pto->vInventoryBlockToSend.size() + pto->vInventoryTierTwoToSend.size(), INVENTORY_BROADCAST_MAX));
+            vInv.reserve(std::max<size_t>(pto->vInventoryBlockToSend.size(), INVENTORY_BROADCAST_MAX));
 
             // Add blocks
             for (const uint256& hash : pto->vInventoryBlockToSend) {
                 vInv.emplace_back(CInv(MSG_BLOCK, hash));
                 if (vInv.size() == MAX_INV_SZ) {
-                    connman->PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
+                    connman.PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
                     vInv.clear();
                 }
             }
@@ -2183,7 +2103,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
             for (const CInv& tInv : pto->vInventoryTierTwoToSend) {
                 vInv.emplace_back(tInv);
                 if (vInv.size() == MAX_INV_SZ) {
-                    connman->PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
+                    connman.PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
                     vInv.clear();
                 }
             }
@@ -2191,10 +2111,10 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
 
             // Check whether periodic send should happen
             bool fSendTrickle = pto->fWhitelisted;
-            if (pto->nNextInvSend < current_time) {
+            if (pto->nNextInvSend < nNow) {
                 fSendTrickle = true;
                 // Use half the delay for outbound peers, as there is less privacy concern for them.
-                pto->nNextInvSend = PoissonNextSend(current_time, std::chrono::seconds{INVENTORY_BROADCAST_INTERVAL >> !pto->fInbound});
+                pto->nNextInvSend = PoissonNextSend(nNow, INVENTORY_BROADCAST_INTERVAL >> !pto->fInbound);
             }
 
             // Time to send but the peer has requested we not relay transactions.
@@ -2221,7 +2141,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                     pto->filterInventoryKnown.insert(hash);
                     vInv.emplace_back(inv);
                     if (vInv.size() == MAX_INV_SZ) {
-                        connman->PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
+                        connman.PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
                         vInv.clear();
                     }
                 }
@@ -2267,7 +2187,7 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                     vInv.emplace_back(CInv(MSG_TX, hash));
                     nRelayedTransactions++;
                     if (vInv.size() == MAX_INV_SZ) {
-                        connman->PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
+                        connman.PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
                         vInv.clear();
                     }
                     pto->filterInventoryKnown.insert(hash);
@@ -2275,10 +2195,9 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
             }
         }
         if (!vInv.empty())
-            connman->PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
+            connman.PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
 
         // Detect whether we're stalling
-        current_time = GetTime<std::chrono::microseconds>();
         nNow = GetTimeMicros();
         if (state.nStallingSince && state.nStallingSince < nNow - 1000000 * BLOCK_STALLING_TIMEOUT) {
             // Stalling only triggers when the block download window cannot move. During normal steady state,
@@ -2330,17 +2249,14 @@ bool PeerLogicValidation::SendMessages(CNode* pto, std::atomic<bool>& interruptM
                 LogPrint(BCLog::NET, "Requesting %s peer=%d\n", inv.ToString(), pto->id);
                 vGetData.push_back(inv);
                 if (vGetData.size() >= 1000) {
-                    connman->PushMessage(pto, msgMaker.Make(NetMsgType::GETDATA, vGetData));
+                    connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETDATA, vGetData));
                     vGetData.clear();
                 }
-            } else {
-                //If we're not going to ask, don't expect a response.
-                pto->setAskFor.erase(inv.hash);
             }
             pto->mapAskFor.erase(pto->mapAskFor.begin());
         }
         if (!vGetData.empty())
-            connman->PushMessage(pto, msgMaker.Make(NetMsgType::GETDATA, vGetData));
+            connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETDATA, vGetData));
     }
     return true;
 }

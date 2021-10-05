@@ -21,6 +21,9 @@
     <pointsize>10</pointsize>
    </font>
   </property>
+  <property name="windowTitle">
+   <string notr="true">KFX Core - Command-line options</string>
+  </property>
   <property name="styleSheet">
    <string notr="true">#HelpMessageDialog {
 	background-color:#FFFFFF;

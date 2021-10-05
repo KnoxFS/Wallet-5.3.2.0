@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
 // Copyright (c) 2009-2018 The Bitcoin developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -41,7 +41,7 @@ namespace BCLog {
         TOR         = (1 <<  1),
         MEMPOOL     = (1 <<  2),
         HTTP        = (1 <<  3),
-        BENCHMARK   = (1 <<  4),
+        BENCH       = (1 <<  4),
         ZMQ         = (1 <<  5),
         DB          = (1 <<  6),
         RPC         = (1 <<  7),
@@ -50,7 +50,7 @@ namespace BCLog {
         SELECTCOINS = (1 << 10),
         REINDEX     = (1 << 11),
         CMPCTBLOCK  = (1 << 12),
-        RANDOM      = (1 << 13),
+        RAND        = (1 << 13),
         PRUNE       = (1 << 14),
         PROXY       = (1 << 15),
         MEMPOOLREJ  = (1 << 16),
@@ -65,7 +65,6 @@ namespace BCLog {
         LEGACYZC    = (1 << 25),
         SAPLING     = (1 << 26),
         SPORKS      = (1 << 27),
-        VALIDATION  = (1 << 28),
         ALL         = ~(uint32_t)0,
     };
 
@@ -138,27 +137,28 @@ std::vector<CLogCategoryActive> ListActiveLogCategories();
 /** Return true if str parses as a log category and set the flag */
 bool GetLogCategory(BCLog::LogFlags& flag, const std::string& str);
 
+/** Get format string from VA_ARGS for error reporting */
+template<typename... Args> std::string FormatStringFromLogArgs(const char *fmt, const Args&... args) { return fmt; }
+
 // Be conservative when using LogPrintf/error or other things which
 // unconditionally log to debug.log! It should not be the case that an inbound
 // peer can fill up a user's disk with debug.log entries.
 
-template <typename... Args>
-static inline void LogPrintf(const char* fmt, const Args&... args)
-{
-    if (g_logger->Enabled()) {
-        std::string log_msg;
-        try {
-            log_msg = tfm::format(fmt, args...);
-        } catch (tinyformat::format_error& fmterr) {
-            /* Original format string will have newline so don't add one here */
-            log_msg = "Error \"" + std::string(fmterr.what()) + "\" while formatting log message: " + fmt;
-        }
-        g_logger->LogPrintStr(log_msg);
-    }
-}
+#define LogPrintf(...) do {                                                         \
+    if(g_logger->Enabled()) {                                                       \
+        std::string _log_msg_; /* Unlikely name to avoid shadowing variables */     \
+        try {                                                                       \
+            _log_msg_ = tfm::format(__VA_ARGS__);                                   \
+        } catch (tinyformat::format_error &e) {                                     \
+            /* Original format string will have newline so don't add one here */    \
+            _log_msg_ = "Error \"" + std::string(e.what()) +                        \
+                        "\" while formatting log message: " +                       \
+                        FormatStringFromLogArgs(__VA_ARGS__);                       \
+        }                                                                           \
+        g_logger->LogPrintStr(_log_msg_);                                           \
+    }                                                                               \
+} while(0)
 
-// Use a macro instead of a function for conditional logging to prevent
-// evaluating arguments when logging for the category is not enabled.
 #define LogPrint(category, ...) do {                                                \
     if (LogAcceptCategory((category))) {                                            \
         LogPrintf(__VA_ARGS__);                                                     \

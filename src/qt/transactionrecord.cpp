@@ -1,12 +1,12 @@
 // Copyright (c) 2011-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
-// Copyright (c) 2015-2020 The PIVX developers
+// Copyright (c) 2015-2020 The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "transactionrecord.h"
 
-#include "key_io.h"
+#include "base58.h"
 #include "sapling/key_io_sapling.h"
 #include "wallet/wallet.h"
 
@@ -38,7 +38,7 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
             sub.debit = -nDebit;
             loadHotOrColdStakeOrContract(wallet, wtx, sub);
         } else {
-            // PIV stake reward
+            // KFX stake reward
             CTxDestination address;
             if (!ExtractDestination(wtx.tx->vout[1].scriptPubKey, address))
                 return true;
@@ -51,7 +51,7 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
     } else {
         //Masternode reward
         CTxDestination destMN;
-        int nIndexMN = (int) wtx.tx->vout.size() - 1;
+        int nIndexMN = (int) wtx.tx->vout.size() - 2; //Align correct output/recipient (-1 slot to account for DON block)
         if (ExtractDestination(wtx.tx->vout[nIndexMN].scriptPubKey, destMN) && (mine = IsMine(*wallet, destMN)) ) {
             sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
             sub.type = TransactionRecord::MNReward;
@@ -144,7 +144,7 @@ bool TransactionRecord::decomposeCreditTransaction(const CWallet* wallet, const 
             sub.credit = txout.nValue;
             sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
             if (ExtractDestination(txout.scriptPubKey, address) && IsMine(*wallet, address)) {
-                // Received by PIVX Address
+                // Received by KFX Address
                 sub.type = TransactionRecord::RecvWithAddress;
                 sub.address = EncodeDestination(address);
             } else {
@@ -317,7 +317,7 @@ bool TransactionRecord::decomposeDebitTransaction(const CWallet* wallet, const C
             //private keys that the change was sent to. Do not display a "sent to" here.
             if (wtx.tx->HasZerocoinMintOutputs())
                 continue;
-            // Sent to PIVX Address
+            // Sent to KFX Address
             sub.type = TransactionRecord::SendToAddress;
             sub.address = EncodeDestination(address);
         } else if (txout.IsZerocoinMint()){
@@ -330,7 +330,7 @@ bool TransactionRecord::decomposeDebitTransaction(const CWallet* wallet, const C
             sub.address = getValueOrReturnEmpty(wtx.mapValue, "to");
             if (sub.address.empty() && txout.scriptPubKey.StartsWithOpcode(OP_RETURN)) {
                 sub.type = TransactionRecord::SendToNobody;
-                // Burned PIVs, op_return could be for a proposal/budget fee or another sort of data stored there.
+                // Burned KFXs, op_return could be for a proposal/budget fee or another sort of data stored there.
                 std::string comment = wtx.GetComment();
                 if (IsValidUTF8(comment)) {
                     sub.address = comment;
@@ -598,7 +598,7 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx, int chainHeight)
     // For generated transactions, determine maturity
     else if (type == TransactionRecord::Generated ||
             type == TransactionRecord::StakeMint ||
-            type == TransactionRecord::StakeZPIV ||
+            type == TransactionRecord::StakeZKFX ||
             type == TransactionRecord::MNReward ||
             type == TransactionRecord::StakeDelegated ||
             type == TransactionRecord::StakeHot) {
@@ -640,7 +640,7 @@ int TransactionRecord::getOutputIndex() const
 
 bool TransactionRecord::isCoinStake() const
 {
-    return (type == TransactionRecord::StakeMint || type == TransactionRecord::Generated || type == TransactionRecord::StakeZPIV);
+    return (type == TransactionRecord::StakeMint || type == TransactionRecord::Generated || type == TransactionRecord::StakeZKFX);
 }
 
 bool TransactionRecord::isAnyColdStakingType() const
@@ -649,6 +649,11 @@ bool TransactionRecord::isAnyColdStakingType() const
             || type == TransactionRecord::P2CSDelegationSentOwner
             || type == TransactionRecord::StakeDelegated || type == TransactionRecord::StakeHot
             || type == TransactionRecord::P2CSUnlockOwner || type == TransactionRecord::P2CSUnlockStaker);
+}
+
+bool TransactionRecord::isMasternodeReward() const
+{
+    return type == TransactionRecord::MNReward;
 }
 
 bool TransactionRecord::isNull() const
