@@ -1,21 +1,21 @@
 // Copyright (c) 2012-2013 The Bitcoin Core developers
-// Copyright (c) 2017-2019 The PIVX developers
+// Copyright (c) 2017-2019 The KFX developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "bloom.h"
 
+#include "base58.h"
 #include "clientversion.h"
 #include "key.h"
-#include "key_io.h"
 #include "merkleblock.h"
 #include "random.h"
 #include "serialize.h"
 #include "streams.h"
 #include "uint256.h"
-#include "util/system.h"
+#include "util.h"
 #include "utilstrencodings.h"
-#include "test/test_pivx.h"
+#include "test/test_knoxfs.h"
 
 #include <vector>
 
@@ -87,7 +87,7 @@ BOOST_AUTO_TEST_CASE(bloom_create_insert_serialize_with_tweak)
 BOOST_AUTO_TEST_CASE(bloom_create_insert_key)
 {
     std::string strSecret = std::string("5Kg1gnAjaLfKiwhhPpGS3QfRg2m6awQvaj98JCZBZQ5SuS2F15C");
-    CKey key = KeyIO::DecodeSecret(strSecret);
+    CKey key = DecodeSecret(strSecret);
     CPubKey pubkey = key.GetPubKey();
     std::vector<unsigned char> vchPubKey(pubkey.begin(), pubkey.end());
 
@@ -154,8 +154,8 @@ BOOST_AUTO_TEST_CASE(bloom_match)
     COutPoint prevOutPoint(uint256("0x90c122d70786e899529d71dbeba91ba216982fb6ba58f3bdaab65e73b7e9260b"), 0);
     {
         std::vector<unsigned char> data(32 + sizeof(unsigned int));
-        memcpy(data.data(), prevOutPoint.hash.begin(), 32);
-        memcpy(data.data()+32, &prevOutPoint.n, sizeof(unsigned int));
+        memcpy(&data[0], prevOutPoint.hash.begin(), 32);
+        memcpy(&data[32], &prevOutPoint.n, sizeof(unsigned int));
         filter.insert(data);
     }
     BOOST_CHECK_MESSAGE(filter.IsRelevantAndUpdate(tx), "Simple Bloom filter didn't match manually serialized COutPoint");
@@ -463,9 +463,6 @@ static std::vector<unsigned char> RandomData()
 
 BOOST_AUTO_TEST_CASE(rolling_bloom)
 {
-    SeedInsecureRand(/* deterministic */ true);
-    g_mock_deterministic_tests = true;
-
     // last-100-entry, 1% false positive:
     CRollingBloomFilter rb1(100, 0.01);
 
@@ -490,8 +487,12 @@ BOOST_AUTO_TEST_CASE(rolling_bloom)
         if (rb1.contains(RandomData()))
             ++nHits;
     }
-    // Expect about 100 hits
-    BOOST_CHECK_EQUAL(nHits, 75);
+    // Run test_bitcoin with --log_level=message to see BOOST_TEST_MESSAGEs:
+    BOOST_TEST_MESSAGE("RollingBloomFilter got " << nHits << " false positives (~100 expected)");
+
+    // Insanely unlikely to get a fp count outside this range:
+    BOOST_CHECK(nHits > 25);
+    BOOST_CHECK(nHits < 175);
 
     BOOST_CHECK(rb1.contains(data[DATASIZE - 1]));
     rb1.reset();
@@ -515,8 +516,10 @@ BOOST_AUTO_TEST_CASE(rolling_bloom)
         if (rb1.contains(data[i]))
             ++nHits;
     }
-    // Expect about 5 false positives
-    BOOST_CHECK_EQUAL(nHits, 6);
+    // Expect about 5 false positives, more than 100 means
+    // something is definitely broken.
+    BOOST_TEST_MESSAGE("RollingBloomFilter got " << nHits << " false positives (~5 expected)");
+    BOOST_CHECK(nHits < 100);
 
     // last-1000-entry, 0.01% false positive:
     CRollingBloomFilter rb2(1000, 0.001);
@@ -527,7 +530,6 @@ BOOST_AUTO_TEST_CASE(rolling_bloom)
     for (int i = 0; i < DATASIZE; i++) {
         BOOST_CHECK(rb2.contains(data[i]));
     }
-    g_mock_deterministic_tests = false;
 }
 
 BOOST_AUTO_TEST_SUITE_END()

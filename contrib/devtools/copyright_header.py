@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2016-2018 The Bitcoin Core developers
-# Copyright (c) 2018-2019 The PIVX developers
+# Copyright (c) 2018-2019 The KFX developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -17,7 +17,7 @@ import os
 
 EXCLUDE = [
     # auto generated:
-    'src/qt/pivxstrings.cpp',
+    'src/qt/knoxfsstrings.cpp',
     'src/chainparamsseeds.h',
     # other external copyrights:
     'src/tinyformat.h',
@@ -74,7 +74,7 @@ def get_filenames_to_examine(base_directory):
 ################################################################################
 
 
-COPYRIGHT_WITH_C = r'Copyright \(c\)'
+COPYRIGHT_WITH_C = 'Copyright \(c\)'
 COPYRIGHT_WITHOUT_C = 'Copyright'
 ANY_COPYRIGHT_STYLE = '(%s|%s)' % (COPYRIGHT_WITH_C, COPYRIGHT_WITHOUT_C)
 
@@ -88,42 +88,43 @@ ANY_COPYRIGHT_STYLE_OR_YEAR_STYLE = ("%s %s" % (ANY_COPYRIGHT_STYLE,
 ANY_COPYRIGHT_COMPILED = re.compile(ANY_COPYRIGHT_STYLE_OR_YEAR_STYLE)
 
 def compile_copyright_regex(copyright_style, year_style, name):
-    return re.compile('%s %s,? %s\n' % (copyright_style, year_style, name))
+    return re.compile('%s %s,? %s' % (copyright_style, year_style, name))
 
 EXPECTED_HOLDER_NAMES = [
-    r"Satoshi Nakamoto",
-    r"The Bitcoin Core developers",
-    r"Bitcoin Core Developers",
-    r"the Bitcoin Core developers",
-    r"The Bitcoin developers",
-    r"The LevelDB Authors\. All rights reserved\.",
-    r"BitPay Inc\.",
-    r"BitPay, Inc\.",
-    r"University of Illinois at Urbana-Champaign\.",
-    r"MarcoFalke",
-    r"Pieter Wuille",
-    r"Pieter Wuille +\*",
-    r"Pieter Wuille, Gregory Maxwell +\*",
-    r"Pieter Wuille, Andrew Poelstra +\*",
-    r"Ian Miers, Christina Garman and Matthew Green",
-    r"Andrew Poelstra +\*",
-    r"Wladimir J. van der Laan",
-    r"Jeff Garzik",
-    r"Diederik Huys, Pieter Wuille +\*",
-    r"Thomas Daede, Cory Fields +\*",
-    r"Jan-Klaas Kollhof",
-    r"Sam Rushing",
-    r"ArtForz -- public domain half-a-node",
-    r" Projet RNRT SAPHIR",
-    r"The Zcash developers",
-    r"The Dash developers",
-    r"The Dash Developers",
-    r"The Dash Core developers",
-    r"The PIVX developers",
-    r"The PPCoin developers",
-    r"The NovaCoin Developers",
-    r"The BlackCoin Developers",
-    r"The Blackcoin More developers",
+    "Satoshi Nakamoto\n",
+    "The Bitcoin Core developers\n",
+    "The Bitcoin Core developers \n",
+    "Bitcoin Core Developers\n",
+    "the Bitcoin Core developers\n",
+    "The Bitcoin developers\n",
+    "The LevelDB Authors\. All rights reserved\.\n",
+    "BitPay Inc\.\n",
+    "BitPay, Inc\.\n",
+    "University of Illinois at Urbana-Champaign\.\n",
+    "MarcoFalke\n",
+    "Pieter Wuille\n",
+    "Pieter Wuille +\*\n",
+    "Pieter Wuille, Gregory Maxwell +\*\n",
+    "Pieter Wuille, Andrew Poelstra +\*\n",
+    "Ian Miers, Christina Garman and Matthew Green\n",
+    "Andrew Poelstra +\*\n",
+    "Wladimir J. van der Laan\n",
+    "Jeff Garzik\n",
+    "Diederik Huys, Pieter Wuille +\*\n",
+    "Thomas Daede, Cory Fields +\*\n",
+    "Jan-Klaas Kollhof\n",
+    "Sam Rushing\n",
+    "ArtForz -- public domain half-a-node\n",
+    " Projet RNRT SAPHIR\n",
+    "The Zcash developers\n",
+    "The Dash developers\n",
+    "The Dash Developers\n",
+    "The Dash Core developers\n",
+    "The KFX developers\n",
+    "The PPCoin developers\n",
+    "The NovaCoin Developers",
+    "The BlackCoin Developers\n",
+    "The Blackcoin More developers\n",
 ]
 
 DOMINANT_STYLE_COMPILED = {}
@@ -353,10 +354,10 @@ def write_file_lines(filename, file_lines):
 # update header years execution
 ################################################################################
 
-COPYRIGHT = r'Copyright \(c\)'
+COPYRIGHT = 'Copyright \(c\)'
 YEAR = "20[0-9][0-9]"
 YEAR_RANGE = '(%s)(-%s)?' % (YEAR, YEAR)
-HOLDER = 'The PIVX developers'
+HOLDER = 'The KFX developers'
 UPDATEABLE_LINE_COMPILED = re.compile(' '.join([COPYRIGHT, YEAR_RANGE, HOLDER]))
 
 def get_updatable_copyright_line(file_lines):
@@ -421,24 +422,24 @@ def exec_update_header_year(base_directory):
 ################################################################################
 
 UPDATE_USAGE = """
-Updates all the copyright headers of "The PIVX developers" which were
+Updates all the copyright headers of "The KFX developers" which were
 changed in a year more recent than is listed. For example:
 
-// Copyright (c) <firstYear>-<lastYear> The PIVX developers
+// Copyright (c) <firstYear>-<lastYear> The KFX developers
 
 will be updated to:
 
-// Copyright (c) <firstYear>-<lastModifiedYear> The PIVX developers
+// Copyright (c) <firstYear>-<lastModifiedYear> The KFX developers
 
 where <lastModifiedYear> is obtained from the 'git log' history.
 
 This subcommand also handles copyright headers that have only a single year. In those cases:
 
-// Copyright (c) <year> The PIVX developers
+// Copyright (c) <year> The KFX developers
 
 will be updated to:
 
-// Copyright (c) <year>-<lastModifiedYear> The PIVX developers
+// Copyright (c) <year>-<lastModifiedYear> The KFX developers
 
 where the update is appropriate.
 
@@ -446,7 +447,7 @@ Usage:
     $ ./copyright_header.py update <base_directory>
 
 Arguments:
-    <base_directory> - The base directory of a pivx source code repository.
+    <base_directory> - The base directory of a knoxfs source code repository.
 """
 
 def print_file_action_message(filename, action):
@@ -471,7 +472,7 @@ def get_header_lines(header, start_year, end_year):
     return [line + '\n' for line in lines]
 
 CPP_HEADER = '''
-// Copyright (c) %s The PIVX developers
+// Copyright (c) %s The KFX developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 '''
@@ -480,7 +481,7 @@ def get_cpp_header_lines_to_insert(start_year, end_year):
     return reversed(get_header_lines(CPP_HEADER, start_year, end_year))
 
 PYTHON_HEADER = '''
-# Copyright (c) %s The PIVX developers
+# Copyright (c) %s The KFX developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 '''
@@ -534,7 +535,7 @@ def insert_cpp_header(filename, file_lines, start_year, end_year):
 def exec_insert_header(filename, style):
     file_lines = read_file_lines(filename)
     if file_already_has_core_copyright(file_lines):
-        sys.exit('*** %s already has a copyright by The PIVX developers'
+        sys.exit('*** %s already has a copyright by The KFX developers'
                  % (filename))
     start_year, end_year = get_git_change_year_range(filename)
     if style == 'python':
@@ -547,7 +548,7 @@ def exec_insert_header(filename, style):
 ################################################################################
 
 INSERT_USAGE = """
-Inserts a copyright header for "The PIVX developers" at the top of the
+Inserts a copyright header for "The KFX developers" at the top of the
 file in either Python or C++ style as determined by the file extension. If the
 file is a Python file and it has a '#!' starting the first line, the header is
 inserted in the line below it.
@@ -561,7 +562,7 @@ where <year_introduced> is according to the 'git log' history. If
 
 "<current_year>"
 
-If the file already has a copyright for "The PIVX developers", the
+If the file already has a copyright for "The KFX developers", the
 script will exit.
 
 Usage:

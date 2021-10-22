@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 # Name of transifex tool
 TX = 'tx'
 # Name of source language file
-SOURCE_LANG = 'pivx_en.ts'
+SOURCE_LANG = 'knoxfs_en.ts'
 # Directory with locale files
 LOCALE_DIR = 'src/qt/locale'
 # Minimum number of messages for translation to be considered at all
@@ -45,7 +45,7 @@ def remove_current_translations():
     '''
     Remove current translations, as well as temporary files that might be left behind
     We only want the active translations that are currently on transifex.
-    This leaves pivx_en.ts untouched.
+    This leaves knoxfs_en.ts untouched.
     '''
     for (_,name) in all_ts_files():
         os.remove(name)
@@ -234,11 +234,11 @@ def update_build_systems():
     '''
     Update build system and Qt resource descriptors.
     '''
-    filename_lang = [re.match(r'((pivx_(.*)).ts)$', filename).groups() for (filename, filepath) in all_ts_files(include_source=True)]
+    filename_lang = [re.match(r'((knoxfs_(.*)).ts)$', filename).groups() for (filename, filepath) in all_ts_files(include_source=True)]
     filename_lang.sort(key=lambda x: x[0])
 
     # update qrc locales
-    with open('src/qt/pivx_locale.qrc', 'w', encoding="utf8") as f:
+    with open('src/qt/knoxfs_locale.qrc', 'w') as f:
         f.write('<!DOCTYPE RCC><RCC version="1.0">\n')
         f.write('    <qresource prefix="/translations">\n')
         for (filename, basename, lang) in filename_lang:
@@ -247,7 +247,7 @@ def update_build_systems():
         f.write('</RCC>\n')
 
     # update Makefile include
-    with open('src/Makefile.qt_locale.include', 'w', encoding="utf8") as f:
+    with open('src/Makefile.qt_locale.include', 'w') as f:
         f.write('QT_TS = \\\n')
         f.write(' \\\n'.join(f'  qt/locale/{filename}' for (filename, basename, lang) in filename_lang))
         f.write('\n') # make sure last line doesn't end with a backslash

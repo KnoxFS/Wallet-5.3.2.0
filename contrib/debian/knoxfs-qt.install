@@ -1,0 +1,6 @@
+usr/local/bin/knoxfs-qt usr/bin
+share/pixmaps/knoxfs32.xpm usr/share/pixmaps
+share/pixmaps/knoxfs16.xpm usr/share/pixmaps
+share/pixmaps/knoxfs128.png usr/share/pixmaps
+debian/knoxfs-qt.desktop usr/share/applications
+debian/knoxfs-qt.protocol usr/share/kde4/services/

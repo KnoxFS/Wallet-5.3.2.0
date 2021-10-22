@@ -1,0 +1,3 @@
+usr/local/bin/knoxfsd usr/bin
+usr/local/bin/knoxfs-cli usr/bin
+debian/examples/knoxfs.conf etc/knoxfs

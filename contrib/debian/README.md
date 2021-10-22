@@ -1,21 +1,21 @@
 
 Debian
 ====================
-This directory contains files used to package pivxd/pivx-qt
-for Debian-based Linux systems. If you compile pivxd/pivx-qt yourself, there are some useful files here.
+This directory contains files used to package knoxfsd/knoxfs-qt
+for Debian-based Linux systems. If you compile knoxfsd/knoxfs-qt yourself, there are some useful files here.
 
-## pivx: URI support ##
+## knoxfs: URI support ##
 
 
-pivx-qt.desktop  (Gnome / Open Desktop)
+knoxfs-qt.desktop  (Gnome / Open Desktop)
 To install:
 
-	sudo desktop-file-install pivx-qt.desktop
+	sudo desktop-file-install knoxfs-qt.desktop
 	sudo update-desktop-database
 
 If you build yourself, you will either need to modify the paths in
-the .desktop file or copy or symlink your pivx-qt binary to `/usr/bin`
-and the `../../share/pixmaps/pivx128.png` to `/usr/share/pixmaps`
+the .desktop file or copy or symlink your knoxfs-qt binary to `/usr/bin`
+and the `../../share/pixmaps/knoxfs128.png` to `/usr/share/pixmaps`
 
-pivx-qt.protocol (KDE)
+knoxfs-qt.protocol (KDE)
 

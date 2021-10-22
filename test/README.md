@@ -1,20 +1,19 @@
-This directory contains integration tests that test pivxd and its
+This directory contains integration tests that test knoxfsd and its
 utilities in their entirety. It does not contain unit tests, which
 can be found in [/src/test](/src/test), [/src/wallet/test](/src/wallet/test),
 etc.
 
-This directory contains the following sets of tests:
+There are currently two sets of tests in this directory:
 
 - [functional](/test/functional) which test the functionality of
-pivxd and pivx-qt by interacting with them through the RPC and P2P
+knoxfsd and knoxfs-qt by interacting with them through the RPC and P2P
 interfaces.
-- [util](/test/util) which tests the pivx utilities, currently only
-pivx-tx.
-- [lint](/test/lint) which perform various static analysis checks.
+- [util](/test/util) which tests the knoxfs utilities, currently only
+knoxfs-tx.
 
 The util tests are run as part of `make check` target. The functional
-tests and lint scripts are run by the GitHub Actions continuous build process whenever a pull
-request is opened. All sets of tests can also be run locally.
+tests are run by the travis continuous build process whenever a pull
+request is opened. Both sets of tests can also be run locally.
 
 # Running tests locally
 
@@ -31,7 +30,7 @@ The ZMQ functional test requires a python ZMQ library. To install it:
 
 #### Running the tests
 
-Individual tests can be run by directly calling the test script, e.g.:
+Individual tests can be run by directly calling the test script, eg:
 
 ```
 test/functional/feature_rbf.py
@@ -71,29 +70,29 @@ options. Run `test_runner.py -h` to see them all.
 
 ##### Resource contention
 
-The P2P and RPC ports used by the pivxd nodes-under-test are chosen to make
-conflicts with other processes unlikely. However, if there is another pivxd
+The P2P and RPC ports used by the knoxfsd nodes-under-test are chosen to make
+conflicts with other processes unlikely. However, if there is another knoxfsd
 process running on the system (perhaps from a previous test which hasn't successfully
-killed all its pivxd nodes), then there may be a port conflict which will
+killed all its knoxfsd nodes), then there may be a port conflict which will
 cause the test to fail. It is recommended that you run the tests on a system
-where no other pivxd processes are running.
+where no other knoxfsd processes are running.
 
 On linux, the test_framework will warn if there is another
-pivxd process running when the tests are started.
+knoxfsd process running when the tests are started.
 
-If there are zombie pivxd processes after test failure, you can kill them
+If there are zombie knoxfsd processes after test failure, you can kill them
 by running the following commands. **Note that these commands will kill all
-pivxd processes running on the system, so should not be used if any non-test
-pivxd processes are being run.**
+knoxfsd processes running on the system, so should not be used if any non-test
+knoxfsd processes are being run.**
 
 ```bash
-killall pivxd
+killall knoxfsd
 ```
 
 or
 
 ```bash
-pkill -9 pivxd
+pkill -9 knoxfsd
 ```
 
 
@@ -104,11 +103,11 @@ functional test is run and is stored in test/cache. This speeds up
 test startup times since new blockchains don't need to be generated for
 each test. However, the cache may get into a bad state, in which case
 tests will fail. If this happens, remove the cache directory (and make
-sure pivxd processes are stopped as above):
+sure knoxfsd processes are stopped as above):
 
 ```bash
 rm -rf cache
-killall pivxd
+killall knoxfsd
 ```
 
 ##### Test logging
@@ -121,13 +120,13 @@ default:
 - when run directly, *all* logs are written to `test_framework.log` and INFO
   level and above are output to the console.
 - when run on Travis, no logs are output to the console. However, if a test
-  fails, the `test_framework.log` and pivxd `debug.log`s will all be dumped
+  fails, the `test_framework.log` and knoxfsd `debug.log`s will all be dumped
   to the console to help troubleshooting.
 
 To change the level of logs output to the console, use the `-l` command line
 argument.
 
-`test_framework.log` and pivxd `debug.log`s can be combined into a single
+`test_framework.log` and knoxfsd `debug.log`s can be combined into a single
 aggregate log by running the `combine_logs.py` script. The output can be plain
 text, colorized text or html. For example:
 
@@ -154,9 +153,9 @@ import pdb; pdb.set_trace()
 ```
 
 anywhere in the test. You will then be able to inspect variables, as well as
-call methods that interact with the pivxd nodes-under-test.
+call methods that interact with the knoxfsd nodes-under-test.
 
-If further introspection of the pivxd instances themselves becomes
+If further introspection of the knoxfsd instances themselves becomes
 necessary, this can be accomplished by first setting a pdb breakpoint
 at an appropriate location, running the test to that point, then using
 `gdb` to attach to the process and debug.
@@ -170,8 +169,8 @@ For instance, to attach to `self.node[1]` during a run:
 use the directory path to get the pid from the pid file:
 
 ```bash
-cat /tmp/user/1000/testo9vsdjo3/node1/regtest/pivxd.pid
-gdb /home/example/pivxd <pid>
+cat /tmp/user/1000/testo9vsdjo3/node1/regtest/knoxfsd.pid
+gdb /home/example/knoxfsd <pid>
 ```
 
 Note: gdb attach step may require `sudo`
@@ -180,30 +179,6 @@ Note: gdb attach step may require `sudo`
 
 Util tests can be run locally by running `test/util/bitcoin-util-test.py`.
 Use the `-v` option for verbose output.
-
-### Lint tests
-
-#### Dependencies
-
-| Lint test | Dependency | Version [used by CI](../.github/workflows/build-and-test.yml) | Installation
-|-----------|:----------:|:-------------------------------------------:|--------------
-| [`lint-python.sh`](lint/lint-python.sh) | [flake8](https://gitlab.com/pycqa/flake8) | [3.8.3](https://github.com/bitcoin/bitcoin/pull/15257) | `pip3 install flake8==3.8.3`
-
-Please be aware that on Linux distributions all dependencies are usually available as packages, but could be outdated.
-
-#### Running the tests
-
-Individual tests can be run by directly calling the test script, e.g.:
-
-```
-test/lint/lint-python.sh
-```
-
-You can run all the shell-based lint tests by running:
-
-```
-test/lint/lint-all.sh
-```
 
 # Writing functional tests
 
