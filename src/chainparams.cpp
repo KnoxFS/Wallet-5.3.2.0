@@ -279,7 +279,7 @@ public:
         consensus.nMaxProposalPayments = 20;
 
         // spork keys
-        consensus.strSporkPubKey = "04a16e2cda855959bc1b781f9933c0409dfbe6dadf29bed44c4db5616a0e5de098f6aee22d411e5437a1e540a47a2387923983c872a81f8a4a9fc83b3de5a7d84e";
+        consensus.strSporkPubKey = "03164789ae7d34fb408f8bf690975f7c2de0c0483b84275d9cfe0ce6283aba8cd2";
         consensus.strSporkPubKeyOld = consensus.strSporkPubKey;
         consensus.nTime_EnforceNewSporkKey = 1608512400;    //!> December 21, 2020 01:00:00 AM GMT
         consensus.nTime_RejectOldSporkKey = std::numeric_limits<int>::max();
@@ -325,10 +325,10 @@ public:
          * The characters are rarely used upper ASCII, not valid as UTF-8, and produce
          * a large 4-byte int at any alignment.
          */
-        pchMessageStart[0] = 0x0c;
-        pchMessageStart[1] = 0xc1;
-        pchMessageStart[2] = 0x0b;
-        pchMessageStart[3] = 0xef;
+        pchMessageStart[0] = 0xf5;
+        pchMessageStart[1] = 0xe6;
+        pchMessageStart[2] = 0xd5;
+        pchMessageStart[3] = 0xca;
         nDefaultPort = 51474;
 
         // nodes with support for servicebits filtering should be at the top
