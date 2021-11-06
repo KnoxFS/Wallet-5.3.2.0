@@ -135,10 +135,10 @@ public:
         consensus.nMaxProposalPayments = 6;
 
         // spork keys
-        consensus.strSporkPubKey = "046e1de0e6a1117f16485c59a34e74e29fa40ca8ac9fdb8c1dc9e440f8bec278c0552fd8123c8494c0e705108281382da54e5c00a911f65b9989576d58a67ed1f6";
-        consensus.strSporkPubKeyOld = consensus.strSporkPubKey;
-        consensus.nTime_EnforceNewSporkKey = 1608512400;    //!> December 21, 2020 01:00:00 AM GMT
-        consensus.nTime_RejectOldSporkKey = std::numeric_limits<int>::max();
+        consensus.strSporkPubKey = "027014767e2bda3daae38ca49743ca5541afb376ad86c2381644bbd619cd2d5d58";
+        consensus.strSporkPubKeyOld = "046e1de0e6a1117f16485c59a34e74e29fa40ca8ac9fdb8c1dc9e440f8bec278c0552fd8123c8494c0e705108281382da54e5c00a911f65b9989576d58a67ed1f6";
+        consensus.nTime_EnforceNewSporkKey = 1636537126;//Wednesday, 10 November 2021 09:38:46
+        consensus.nTime_RejectOldSporkKey = 1636537127;//Wednesday, 10 November 2021 09:38:47
 
         // height-based activations
         consensus.height_last_invalid_UTXO = std::numeric_limits<int>::max();

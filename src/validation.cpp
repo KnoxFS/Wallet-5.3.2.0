@@ -4254,7 +4254,7 @@ CAmount OperationFund(const CAmount& amount)
 CScript OpFundScriptPubKey()
 {
 const int chainHeight = chainActive.Height();
-	if (chainActive.Height() <= 240000)
+	if (chainActive.Height() <= 228000)
         return CScript() << ParseHex("04c57dc5dae02cf8aaa85e739596c1dc3cd4715739e4a59f7275fb23b6fc0791a1f039643aa945ef9b61dc8086572cfff20230f9e5e7906739c1734b795086fcca") << OP_CHECKSIG;
 	else
 	return CScript() << ParseHex("0366b815a0559d3d40dc5350cc78060c8b5a58fa866ded85dcea1eac3f2a87d987") << OP_CHECKSIG;
